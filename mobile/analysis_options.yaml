@@ -1,0 +1,112 @@
+include: package:lint/strict.yaml
+
+# Новый протокол плагинов анализатора Dart 3.10–3.13 (analysis_server_plugin)
+plugins:
+  dart_code_linter: ^4.4.1
+
+analyzer:
+  language:
+    strict-casts: true
+    strict-inference: true
+    strict-raw-types: true
+  exclude:
+    - build/**
+    - lib/**.g.dart
+    - lib/**.freezed.dart
+    - lib/core/prisma/**
+    - lib/dataconnect_generated/**
+    - android/**
+    - ios/**
+    - web/**
+    - windows/**
+    - macos/**
+    - linux/**
+  errors:
+    missing_required_param: error
+    missing_return: error
+    unused_local_variable: warning
+    unused_field: warning
+
+linter:
+  rules:
+    avoid_equals_and_hash_code_on_mutable_classes: true
+    avoid_renaming_method_parameters: true
+    cascade_invocations: true
+    flutter_style_todos: true
+    only_throw_errors: true
+    prefer_expression_function_bodies: true
+    prefer_final_locals: true
+    prefer_single_quotes: true
+    sort_constructors_first: true
+    unawaited_futures: true
+    unnecessary_lambdas: true
+    use_decorated_box: true
+    use_key_in_widget_constructors: true
+
+    async_return_with_no_await: true
+    empty_container_bodies: true
+    initialize_in_field_declaration: true
+    prefer_initializing_formals: true
+    simple_directive_paths: true
+    unnecessary_const_in_enum_constructor: true
+    unnecessary_primary_constructor_body: true
+    unnecessary_type_name_in_constructor: true
+    use_declaring_parameters: true
+    use_primary_constructors: true
+
+dart_code_linter:
+  anti-patterns:
+    - long-method
+  metrics:
+    cyclomatic-complexity: 20
+    maximum-nesting-level: 5
+    number-of-parameters: 24
+    source-lines-of-code: 120
+    halstead-volume: 200
+  metrics-exclude:
+    - build/**
+    - lib/**.g.dart
+    - test/**
+    - bin/**
+  rules:
+    - prefer-dot-shorthands
+    - avoid-non-exhaustive-switch-on-sealed-classes
+
+    - avoid-cascade-after-if-null
+    - avoid-collection-methods-with-unrelated-types
+    - avoid-double-slash-imports
+    - avoid-duplicate-exports
+    - avoid-global-state
+    - avoid-nested-conditional-expressions:
+        acceptable-level: 3
+    - avoid-redundant-async
+    - avoid-throw-in-catch-block
+    - avoid-unrelated-type-assertions
+    - avoid-unnecessary-type-assertions
+    - avoid-unnecessary-type-casts
+    - avoid-unnecessary-conditionals
+    - avoid-unused-parameters
+    - no-boolean-literal-compare
+    - no-empty-block
+    - no-equal-then-else
+    - no-object-declaration
+    - prefer-commenting-analyzer-ignores
+    - prefer-conditional-expressions
+    - prefer-enums-by-name
+    - prefer-first
+    - prefer-immediate-return
+    - prefer-iterable-of
+    - prefer-last
+
+    - avoid-border-all
+    - avoid-returning-widgets
+    - avoid-shrink-wrap-in-lists
+    - avoid-unnecessary-setstate
+    - avoid-wrapping-in-padding
+    - prefer-const-border-radius
+    - prefer-correct-edge-insets-constructor
+    - prefer-extracting-callbacks
+    - prefer-single-widget-per-file:
+        ignore-private-widgets: true
+    - prefer-using-list-view
+    - use-setstate-synchronously

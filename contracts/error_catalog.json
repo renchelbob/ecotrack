@@ -1,0 +1,583 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "catalog_version": "1.0.0",
+  "allowed_client_actions": [
+    "none",
+    "refresh_token",
+    "force_logout",
+    "show_inline",
+    "show_banner",
+    "queue_retry",
+    "open_phone_modal",
+    "open_consent_screen"
+  ],
+  "errors": {
+    "INTERNAL_SERVER_ERROR": {
+      "code": "INTERNAL_SERVER_ERROR",
+      "http_status": 500,
+      "domain": "infrastructure",
+      "retryable": true,
+      "client_action": "show_banner",
+      "description_en": "Unhandled server exception caught by global FastAPI exception middleware.",
+      "ui_message_ru": "Внутренняя ошибка сервера. Мы уже записали сбой — попробуйте повторить позже."
+    },
+    "DATABASE_UNAVAILABLE": {
+      "code": "DATABASE_UNAVAILABLE",
+      "http_status": 503,
+      "domain": "infrastructure",
+      "retryable": true,
+      "client_action": "queue_retry",
+      "description_en": "PostgreSQL connection pool exhausted or database unreachable.",
+      "ui_message_ru": "Сервис временно перегружен. Изменения сохранены локально и синхронизируются автоматически."
+    },
+    "POSTGIS_EXTENSION_UNAVAILABLE": {
+      "code": "POSTGIS_EXTENSION_UNAVAILABLE",
+      "http_status": 503,
+      "domain": "infrastructure",
+      "retryable": true,
+      "client_action": "show_banner",
+      "description_en": "PostGIS 3.5 spatial functions failed readiness verification.",
+      "ui_message_ru": "Геосервис временно недоступен. Офлайн-карта продолжает работать из локального кэша."
+    },
+    "VALIDATION_ERROR": {
+      "code": "VALIDATION_ERROR",
+      "http_status": 422,
+      "domain": "infrastructure",
+      "retryable": false,
+      "client_action": "show_inline",
+      "description_en": "Request payload or query parameters failed Pydantic v2.14 schema validation.",
+      "ui_message_ru": "Проверьте правильность заполнения полей формы."
+    },
+    "INVALID_IDEMPOTENCY_KEY": {
+      "code": "INVALID_IDEMPOTENCY_KEY",
+      "http_status": 400,
+      "domain": "infrastructure",
+      "retryable": false,
+      "client_action": "none",
+      "description_en": "Idempotency-Key header is missing or is not a valid UUIDv7 string.",
+      "ui_message_ru": "Техническая ошибка запроса (некорректный ключ идемпотентности)."
+    },
+    "IDEMPOTENCY_KEY_PAYLOAD_MISMATCH": {
+      "code": "IDEMPOTENCY_KEY_PAYLOAD_MISMATCH",
+      "http_status": 409,
+      "domain": "infrastructure",
+      "retryable": false,
+      "client_action": "none",
+      "description_en": "Idempotency-Key was reused with a different request payload or operation type.",
+      "ui_message_ru": "Операция с этим идентификатором уже была выполнена с другими параметрами."
+    },
+    "IDEMPOTENCY_IN_FLIGHT": {
+      "code": "IDEMPOTENCY_IN_FLIGHT",
+      "http_status": 409,
+      "domain": "infrastructure",
+      "retryable": true,
+      "client_action": "queue_retry",
+      "description_en": "Another concurrent request with the same Idempotency-Key is currently executing.",
+      "ui_message_ru": "Запрос уже обрабатывается сервером. Пожалуйста, подождите."
+    },
+    "RATE_LIMIT_EXCEEDED": {
+      "code": "RATE_LIMIT_EXCEEDED",
+      "http_status": 429,
+      "domain": "infrastructure",
+      "retryable": true,
+      "client_action": "show_banner",
+      "description_en": "Client exceeded per-IP or per-user API request rate limit.",
+      "ui_message_ru": "Слишком много запросов за короткое время. Подождите несколько секунд."
+    },
+    "AUTH_TOKEN_MISSING": {
+      "code": "AUTH_TOKEN_MISSING",
+      "http_status": 401,
+      "domain": "auth",
+      "retryable": false,
+      "client_action": "force_logout",
+      "description_en": "Authorization Bearer header is missing on a protected endpoint.",
+      "ui_message_ru": "Требуется вход в аккаунт."
+    },
+    "AUTH_TOKEN_EXPIRED": {
+      "code": "AUTH_TOKEN_EXPIRED",
+      "http_status": 401,
+      "domain": "auth",
+      "retryable": true,
+      "client_action": "refresh_token",
+      "description_en": "JWT access token exp claim is in the past; client must invoke /api/v1/auth/refresh.",
+      "ui_message_ru": "Сессия обновляется..."
+    },
+    "AUTH_TOKEN_INVALID": {
+      "code": "AUTH_TOKEN_INVALID",
+      "http_status": 401,
+      "domain": "auth",
+      "retryable": false,
+      "client_action": "force_logout",
+      "description_en": "JWT access token signature or claims structure is invalid.",
+      "ui_message_ru": "Сессия недействительна. Пожалуйста, войдите снова."
+    },
+    "REFRESH_TOKEN_EXPIRED_OR_REVOKED": {
+      "code": "REFRESH_TOKEN_EXPIRED_OR_REVOKED",
+      "http_status": 401,
+      "domain": "auth",
+      "retryable": false,
+      "client_action": "force_logout",
+      "description_en": "Refresh token hash not found, expired, or explicitly revoked in auth_refresh_sessions.",
+      "ui_message_ru": "Время сессии истекло. Пожалуйста, авторизуйтесь заново."
+    },
+    "DEVICE_FINGERPRINT_MISMATCH": {
+      "code": "DEVICE_FINGERPRINT_MISMATCH",
+      "http_status": 401,
+      "domain": "auth",
+      "retryable": false,
+      "client_action": "force_logout",
+      "description_en": "Refresh token presented from a different device_fingerprint than recorded at issuance.",
+      "ui_message_ru": "Обнаружен вход с другого устройства. В целях безопасности войдите заново."
+    },
+    "OAUTH_CODE_EXCHANGE_FAILED": {
+      "code": "OAUTH_CODE_EXCHANGE_FAILED",
+      "http_status": 401,
+      "domain": "auth",
+      "retryable": false,
+      "client_action": "show_banner",
+      "description_en": "Upstream OAuth provider (Yandex ID, VK ID, or Google) rejected the authorization code.",
+      "ui_message_ru": "Не удалось завершить вход через провайдера. Попробуйте ещё раз."
+    },
+    "OAUTH_PKCE_VERIFICATION_FAILED": {
+      "code": "OAUTH_PKCE_VERIFICATION_FAILED",
+      "http_status": 400,
+      "domain": "auth",
+      "retryable": false,
+      "client_action": "show_banner",
+      "description_en": "PKCE code_verifier does not match the S256 code_challenge used during authorization.",
+      "ui_message_ru": "Ошибка проверки безопасности OAuth PKCE. Повторите попытку входа."
+    },
+    "OAUTH_PROVIDER_UNAVAILABLE": {
+      "code": "OAUTH_PROVIDER_UNAVAILABLE",
+      "http_status": 503,
+      "domain": "auth",
+      "retryable": true,
+      "client_action": "show_banner",
+      "description_en": "Upstream OAuth provider token or userinfo endpoint timed out or returned 5xx.",
+      "ui_message_ru": "Сервер провайдера авторизации временно не отвечает. Попробуйте позже."
+    },
+    "GOOGLE_FORMAL_PHONE_REQUIRED": {
+      "code": "GOOGLE_FORMAL_PHONE_REQUIRED",
+      "http_status": 403,
+      "domain": "auth",
+      "retryable": false,
+      "client_action": "open_phone_modal",
+      "description_en": "User authenticated via Google (lab mode) and must complete the formal phone number dialog before accessing protected features.",
+      "ui_message_ru": "Для продолжения работы в лабораторном режиме Google OAuth укажите контактный номер телефона."
+    },
+    "INVALID_FORMAL_PHONE_E164": {
+      "code": "INVALID_FORMAL_PHONE_E164",
+      "http_status": 422,
+      "domain": "auth",
+      "retryable": false,
+      "client_action": "show_inline",
+      "description_en": "Formal phone number does not match E.164 format (+[1-9][0-9]{7,14}).",
+      "ui_message_ru": "Введите номер телефона в международном формате, например +79991234567."
+    },
+    "FZ152_CONSENT_REQUIRED": {
+      "code": "FZ152_CONSENT_REQUIRED",
+      "http_status": 403,
+      "domain": "fz152",
+      "retryable": false,
+      "client_action": "open_consent_screen",
+      "description_en": "User has not granted mandatory 152-FZ personal data processing consent.",
+      "ui_message_ru": "Для использования приложения необходимо согласие на обработку персональных данных (152-ФЗ)."
+    },
+    "FZ152_CONSENT_REVOKED": {
+      "code": "FZ152_CONSENT_REVOKED",
+      "http_status": 403,
+      "domain": "fz152",
+      "retryable": false,
+      "client_action": "open_consent_screen",
+      "description_en": "User previously revoked 152-FZ consent; data processing operations are blocked until re-granted or account is deleted.",
+      "ui_message_ru": "Обработка данных приостановлена, так как вы отозвали согласие 152-ФЗ. Вы можете возобновить согласие или удалить аккаунт."
+    },
+    "FZ152_GEOLOCATION_CONSENT_MISSING": {
+      "code": "FZ152_GEOLOCATION_CONSENT_MISSING",
+      "http_status": 403,
+      "domain": "fz152",
+      "retryable": false,
+      "client_action": "open_consent_screen",
+      "description_en": "User attempted to upload GPS track points while background_geolocation scope in 152-FZ consent is false.",
+      "ui_message_ru": "Для сохранения GPS-маршрутов включите разрешение на обработку геоданных в настройках 152-ФЗ."
+    },
+    "FZ152_HEALTH_SENSOR_CONSENT_MISSING": {
+      "code": "FZ152_HEALTH_SENSOR_CONSENT_MISSING",
+      "http_status": 403,
+      "domain": "fz152",
+      "retryable": false,
+      "client_action": "open_consent_screen",
+      "description_en": "User attempted to sync daily steps while health_steps_sensor scope in 152-FZ consent is false.",
+      "ui_message_ru": "Для синхронизации шагов необходимо согласие на обработку данных датчиков активности."
+    },
+    "FZ152_INVALID_CONFIRMATION_PHRASE": {
+      "code": "FZ152_INVALID_CONFIRMATION_PHRASE",
+      "http_status": 400,
+      "domain": "fz152",
+      "retryable": false,
+      "client_action": "show_inline",
+      "description_en": "Account deletion confirmation_phrase did not match DELETE_MY_DATA_152FZ.",
+      "ui_message_ru": "Для подтверждения удаления аккаунта введите точную контрольную фразу."
+    },
+    "USER_NOT_FOUND": {
+      "code": "USER_NOT_FOUND",
+      "http_status": 404,
+      "domain": "profile",
+      "retryable": false,
+      "client_action": "force_logout",
+      "description_en": "Authenticated user ID no longer exists in users table.",
+      "ui_message_ru": "Профиль пользователя не найден."
+    },
+    "VEHICLE_NOT_CONFIGURED": {
+      "code": "VEHICLE_NOT_CONFIGURED",
+      "http_status": 404,
+      "domain": "vehicle",
+      "retryable": false,
+      "client_action": "show_inline",
+      "description_en": "User has not configured a personal vehicle record in user_vehicles.",
+      "ui_message_ru": "Личный автомобиль ещё не добавлен. Укажите тип топлива и расход в разделе «Мой автомобиль»."
+    },
+    "INVALID_VEHICLE_CONSUMPTION": {
+      "code": "INVALID_VEHICLE_CONSUMPTION",
+      "http_status": 422,
+      "domain": "vehicle",
+      "retryable": false,
+      "client_action": "show_inline",
+      "description_en": "Vehicle fuel consumption per 100km must be > 0 and <= 50.0.",
+      "ui_message_ru": "Расход на 100 км должен быть больше 0 и не превышать 50 л (или кВт·ч)."
+    },
+    "MASCOT_ACCESSORY_NOT_FOUND": {
+      "code": "MASCOT_ACCESSORY_NOT_FOUND",
+      "http_status": 404,
+      "domain": "profile",
+      "retryable": false,
+      "client_action": "show_banner",
+      "description_en": "Requested mascot accessory_code does not exist in mascot_accessories.",
+      "ui_message_ru": "Выбранный аксессуар для зверька не найден."
+    },
+    "MASCOT_ACCESSORY_NOT_UNLOCKED": {
+      "code": "MASCOT_ACCESSORY_NOT_UNLOCKED",
+      "http_status": 403,
+      "domain": "profile",
+      "retryable": false,
+      "client_action": "show_banner",
+      "description_en": "User attempted to equip a mascot accessory that is not in user_mascot_inventory.",
+      "ui_message_ru": "Этот аксессуар ещё не открыт. Приобретите его в магазине или получите за достижение."
+    },
+    "ACTIVITY_DATE_IN_FUTURE": {
+      "code": "ACTIVITY_DATE_IN_FUTURE",
+      "http_status": 400,
+      "domain": "activity",
+      "retryable": false,
+      "client_action": "show_banner",
+      "description_en": "Submitted activity_date is ahead of current local date in user's timezone.",
+      "ui_message_ru": "Нельзя синхронизировать шаги или маршруты за будущую дату."
+    },
+    "DAILY_ACTIVITY_NOT_FOUND": {
+      "code": "DAILY_ACTIVITY_NOT_FOUND",
+      "http_status": 404,
+      "domain": "activity",
+      "retryable": false,
+      "client_action": "none",
+      "description_en": "No daily_step_summaries record exists for the requested user and activity_date.",
+      "ui_message_ru": "За выбранную дату нет записей об активности."
+    },
+    "EDIT_WINDOW_EXPIRED": {
+      "code": "EDIT_WINDOW_EXPIRED",
+      "http_status": 400,
+      "domain": "activity",
+      "retryable": false,
+      "client_action": "show_banner",
+      "description_en": "Route segment transport allocations can only be created, modified, or deleted for today and yesterday.",
+      "ui_message_ru": "Разметка транспорта на маршруте доступна только за сегодня и за вчерашний день."
+    },
+    "SEGMENT_OVERLAP_CONFLICT": {
+      "code": "SEGMENT_OVERLAP_CONFLICT",
+      "http_status": 409,
+      "domain": "activity",
+      "retryable": false,
+      "client_action": "show_inline",
+      "description_en": "Submitted route segment allocations have overlapping [start_seq_no, end_seq_no] intervals.",
+      "ui_message_ru": "Выбранные участки маршрута пересекаются друг с другом. Выделите непересекающиеся отрезки."
+    },
+    "SEGMENT_SEQ_OUT_OF_BOUNDS": {
+      "code": "SEGMENT_SEQ_OUT_OF_BOUNDS",
+      "http_status": 422,
+      "domain": "activity",
+      "retryable": false,
+      "client_action": "show_inline",
+      "description_en": "Segment start_seq_no or end_seq_no does not exist in gps_track_points for the specified date.",
+      "ui_message_ru": "Выделенный участок выходит за пределы записанного GPS-трека."
+    },
+    "SEGMENT_CONTAINS_VEHICLE_MOTION": {
+      "code": "SEGMENT_CONTAINS_VEHICLE_MOTION",
+      "http_status": 422,
+      "domain": "antifraud",
+      "retryable": false,
+      "client_action": "show_inline",
+      "description_en": "Selected GPS segment contains points classified as vehicle_suspected (high delta_d with near-zero delta_steps).",
+      "ui_message_ru": "На этом участке зафиксировано движение на транспорте (высокая скорость без шагов). Выделите пеший участок."
+    },
+    "ALLOCATION_NOT_FOUND": {
+      "code": "ALLOCATION_NOT_FOUND",
+      "http_status": 404,
+      "domain": "activity",
+      "retryable": false,
+      "client_action": "none",
+      "description_en": "Specified route_segment_allocations ID does not exist for this user and date.",
+      "ui_message_ru": "Выделенный участок маршрута не найден."
+    },
+    "TRACK_BATCH_EMPTY_OR_TOO_LARGE": {
+      "code": "TRACK_BATCH_EMPTY_OR_TOO_LARGE",
+      "http_status": 422,
+      "domain": "activity",
+      "retryable": false,
+      "client_action": "none",
+      "description_en": "GPS track batch must contain between 1 and 500 points.",
+      "ui_message_ru": "Пакет точек маршрута пуст или превышает допустимый размер (500 точек)."
+    },
+    "TRACK_POINT_INVALID_GEOMETRY": {
+      "code": "TRACK_POINT_INVALID_GEOMETRY",
+      "http_status": 422,
+      "domain": "activity",
+      "retryable": false,
+      "client_action": "none",
+      "description_en": "GPS coordinates failed PostGIS ST_IsValid or WGS-84 bounds check.",
+      "ui_message_ru": "Некорректные географические координаты точки маршрута."
+    },
+    "ANTIFRAUD_DAILY_STEP_CAP_EXCEEDED": {
+      "code": "ANTIFRAUD_DAILY_STEP_CAP_EXCEEDED",
+      "http_status": 422,
+      "domain": "antifraud",
+      "retryable": false,
+      "client_action": "show_banner",
+      "description_en": "Reported raw_sensor_steps exceeds maximum human daily threshold (100,000 steps) and was rejected by server antifraud.",
+      "ui_message_ru": "Срабатывание защиты от накрутки: количество шагов за сутки превышает физически допустимый лимит (100 000)."
+    },
+    "ANTIFRAUD_STEP_SPIKE_DETECTED": {
+      "code": "ANTIFRAUD_STEP_SPIKE_DETECTED",
+      "http_status": 422,
+      "domain": "antifraud",
+      "retryable": false,
+      "client_action": "show_banner",
+      "description_en": "Step cadence between consecutive syncs or track points exceeded 4.5 steps/sec sustained.",
+      "ui_message_ru": "Обнаружена аномальная частота шагов (подозрение на механическую накрутку)."
+    },
+    "ANTIFRAUD_SPEED_SPOOFING_DETECTED": {
+      "code": "ANTIFRAUD_SPEED_SPOOFING_DETECTED",
+      "http_status": 422,
+      "domain": "antifraud",
+      "retryable": false,
+      "client_action": "show_banner",
+      "description_en": "GPS trajectory exhibits teleportation (> 50 m/s jump) or mock location signature.",
+      "ui_message_ru": "Обнаружено искажение сигнала GPS. Некорректные точки маршрута отфильтрованы."
+    },
+    "POINT_LEDGER_IMMUTABLE_VIOLATION": {
+      "code": "POINT_LEDGER_IMMUTABLE_VIOLATION",
+      "http_status": 409,
+      "domain": "ledger",
+      "retryable": false,
+      "client_action": "none",
+      "description_en": "Attempted UPDATE or DELETE on append-only point_ledger blocked by trg_point_ledger_immutable.",
+      "ui_message_ru": "Реестр транзакций баллов защищён от изменений."
+    },
+    "INSUFFICIENT_POINTS_BALANCE": {
+      "code": "INSUFFICIENT_POINTS_BALANCE",
+      "http_status": 409,
+      "domain": "shop",
+      "retryable": false,
+      "client_action": "show_banner",
+      "description_en": "Order total exceeds users.points_balance or triggered CHECK (points_balance >= 0).",
+      "ui_message_ru": "Недостаточно эко-баллов на балансе для оформления заказа."
+    },
+    "SHOP_ITEM_NOT_FOUND": {
+      "code": "SHOP_ITEM_NOT_FOUND",
+      "http_status": 404,
+      "domain": "shop",
+      "retryable": false,
+      "client_action": "show_banner",
+      "description_en": "Requested shop_item_id does not exist in shop_items.",
+      "ui_message_ru": "Товар не найден в каталоге магазина."
+    },
+    "SHOP_ITEM_INACTIVE": {
+      "code": "SHOP_ITEM_INACTIVE",
+      "http_status": 409,
+      "domain": "shop",
+      "retryable": false,
+      "client_action": "show_banner",
+      "description_en": "Requested shop item has is_active = false.",
+      "ui_message_ru": "Этот товар временно снят с витрины магазина."
+    },
+    "SHOP_ITEM_OUT_OF_STOCK": {
+      "code": "SHOP_ITEM_OUT_OF_STOCK",
+      "http_status": 409,
+      "domain": "shop",
+      "retryable": false,
+      "client_action": "show_banner",
+      "description_en": "Requested quantity exceeds shop_items.stock_quantity.",
+      "ui_message_ru": "К сожалению, купоны по этому предложению закончились."
+    },
+    "SHOP_DAILY_USER_LIMIT_EXCEEDED": {
+      "code": "SHOP_DAILY_USER_LIMIT_EXCEEDED",
+      "http_status": 409,
+      "domain": "shop",
+      "retryable": false,
+      "client_action": "show_banner",
+      "description_en": "User exceeded shop_items.max_per_user_per_day for a catalog item.",
+      "ui_message_ru": "Достигнут дневной лимит покупок этого товара на одного пользователя."
+    },
+    "SHOP_ACCESSORY_ALREADY_OWNED": {
+      "code": "SHOP_ACCESSORY_ALREADY_OWNED",
+      "http_status": 409,
+      "domain": "shop",
+      "retryable": false,
+      "client_action": "show_banner",
+      "description_en": "User already owns this mascot_accessory in user_mascot_inventory.",
+      "ui_message_ru": "Этот аксессуар для зверька уже есть в вашей коллекции."
+    },
+    "STREAK_FREEZE_NONE_AVAILABLE": {
+      "code": "STREAK_FREEZE_NONE_AVAILABLE",
+      "http_status": 409,
+      "domain": "shop",
+      "retryable": false,
+      "client_action": "show_banner",
+      "description_en": "User attempted to activate a streak freeze while users.streak_freeze_count is 0.",
+      "ui_message_ru": "У вас нет доступных заморозок серии. Приобретите заморозку в магазине."
+    },
+    "STREAK_FREEZE_NOT_NEEDED": {
+      "code": "STREAK_FREEZE_NOT_NEEDED",
+      "http_status": 400,
+      "domain": "shop",
+      "retryable": false,
+      "client_action": "show_banner",
+      "description_en": "User's streak is already active for yesterday or today; streak freeze consumption is unnecessary.",
+      "ui_message_ru": "Ваша серия активности не прерывалась — тратить заморозку не требуется."
+    },
+    "FRIEND_CODE_NOT_FOUND": {
+      "code": "FRIEND_CODE_NOT_FOUND",
+      "http_status": 404,
+      "domain": "social",
+      "retryable": false,
+      "client_action": "show_inline",
+      "description_en": "No user matches the submitted ECO-XXXX-XXXX friend_code.",
+      "ui_message_ru": "Пользователь с таким кодом друга не найден. Проверьте код или отсканируйте QR заново."
+    },
+    "FRIEND_REQUEST_SELF_FORBIDDEN": {
+      "code": "FRIEND_REQUEST_SELF_FORBIDDEN",
+      "http_status": 400,
+      "domain": "social",
+      "retryable": false,
+      "client_action": "show_inline",
+      "description_en": "User attempted to send a friend request to their own friend_code.",
+      "ui_message_ru": "Нельзя отправить заявку в друзья самому себе."
+    },
+    "FRIENDSHIP_ALREADY_EXISTS": {
+      "code": "FRIENDSHIP_ALREADY_EXISTS",
+      "http_status": 409,
+      "domain": "social",
+      "retryable": false,
+      "client_action": "show_inline",
+      "description_en": "An active or pending friendship already exists for this unordered user pair.",
+      "ui_message_ru": "Заявка уже отправлена или пользователь уже находится в вашем списке друзей."
+    },
+    "FRIENDSHIP_BLOCKED": {
+      "code": "FRIENDSHIP_BLOCKED",
+      "http_status": 403,
+      "domain": "social",
+      "retryable": false,
+      "client_action": "show_banner",
+      "description_en": "Friendship record between the two users is in blocked status.",
+      "ui_message_ru": "Отправка заявки этому пользователю недоступна."
+    },
+    "FRIENDSHIP_NOT_FOUND": {
+      "code": "FRIENDSHIP_NOT_FOUND",
+      "http_status": 404,
+      "domain": "social",
+      "retryable": false,
+      "client_action": "show_banner",
+      "description_en": "Specified friendship_id or friend_user_id relationship does not exist.",
+      "ui_message_ru": "Запись о дружбе или заявке не найдена."
+    },
+    "WAKEUP_NUDGE_DAILY_COOLDOWN": {
+      "code": "WAKEUP_NUDGE_DAILY_COOLDOWN",
+      "http_status": 429,
+      "domain": "social",
+      "retryable": false,
+      "client_action": "show_banner",
+      "description_en": "Sender already nudged this friend on the current calendar date (UNIQUE constraint on friend_wakeup_nudges).",
+      "ui_message_ru": "Вы уже будили зверька этого друга сегодня. Попробуйте снова завтра!"
+    },
+    "SHARED_FOREST_CHALLENGE_NOT_ACTIVE": {
+      "code": "SHARED_FOREST_CHALLENGE_NOT_ACTIVE",
+      "http_status": 404,
+      "domain": "social",
+      "retryable": false,
+      "client_action": "none",
+      "description_en": "No active shared_forest_challenges record exists for the current ISO week.",
+      "ui_message_ru": "Новое недельное испытание «Общий лес» скоро начнётся."
+    },
+    "INVALID_BBOX_COORDINATES": {
+      "code": "INVALID_BBOX_COORDINATES",
+      "http_status": 400,
+      "domain": "map_rso",
+      "retryable": false,
+      "client_action": "none",
+      "description_en": "Bounding box min_lat >= max_lat or min_lon >= max_lon.",
+      "ui_message_ru": "Некорректные границы области поиска на карте."
+    },
+    "BBOX_AREA_TOO_LARGE_FOR_ZOOM": {
+      "code": "BBOX_AREA_TOO_LARGE_FOR_ZOOM",
+      "http_status": 400,
+      "domain": "map_rso",
+      "retryable": false,
+      "client_action": "show_banner",
+      "description_en": "Bounding box span exceeds 5.0 degrees at high detail zoom.",
+      "ui_message_ru": "Приблизьте карту, чтобы загрузить пункты приёма вторсырья в этом районе."
+    },
+    "WASTE_POINT_NOT_FOUND": {
+      "code": "WASTE_POINT_NOT_FOUND",
+      "http_status": 404,
+      "domain": "map_rso",
+      "retryable": false,
+      "client_action": "show_banner",
+      "description_en": "Requested waste_point_id does not exist in waste_points.",
+      "ui_message_ru": "Пункт приёма вторсырья не найден."
+    },
+    "REPORT_USER_TOO_FAR_FROM_POINT": {
+      "code": "REPORT_USER_TOO_FAR_FROM_POINT",
+      "http_status": 422,
+      "domain": "map_rso",
+      "retryable": false,
+      "client_action": "show_inline",
+      "description_en": "User's submitted coordinates are more than 2,000 meters away from the target waste_point.",
+      "ui_message_ru": "Чтобы подтвердить или обновить статус пункта РСО, необходимо находиться не далее 2 км от него."
+    },
+    "DUPLICATE_POINT_REPORT_COOLDOWN": {
+      "code": "DUPLICATE_POINT_REPORT_COOLDOWN",
+      "http_status": 429,
+      "domain": "map_rso",
+      "retryable": false,
+      "client_action": "show_banner",
+      "description_en": "User already submitted a report for this waste_point within the last 12 hours.",
+      "ui_message_ru": "Вы недавно уже отправляли отчёт по этому пункту РСО. Спасибо за участие!"
+    },
+    "PUSH_TOKEN_NOT_FOUND": {
+      "code": "PUSH_TOKEN_NOT_FOUND",
+      "http_status": 404,
+      "domain": "push",
+      "retryable": false,
+      "client_action": "none",
+      "description_en": "Push notification token not found for current user.",
+      "ui_message_ru": "Токен уведомлений устройства не найден."
+    },
+    "PUSH_DELIVERY_FAILED": {
+      "code": "PUSH_DELIVERY_FAILED",
+      "http_status": 503,
+      "domain": "push",
+      "retryable": true,
+      "client_action": "none",
+      "description_en": "Configured PushNotificationProvider failed to deliver push payload to upstream gateway.",
+      "ui_message_ru": "Не удалось доставить push-уведомление."
+    }
+  }
+}

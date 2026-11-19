@@ -1,0 +1,71 @@
+name: ecotrack_mobile
+description: "EcoTrack mobile application - Contract-First Flutter client with offline SQLite WAL engine."
+publish_to: "none"
+version: 1.0.0+1
+
+environment:
+  sdk: ">=3.13.4 <4.0.0"
+  flutter: ">=3.29.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+  flutter_localizations:
+    sdk: flutter
+
+  # State Management (BLoC FSM)
+  flutter_bloc: ^9.1.1
+
+  # Declarative Routing
+  go_router: ^18.1.4
+
+  # Map & Spatial Geometry
+  flutter_map: ^8.3.2
+  latlong2: ^0.10.1
+
+  # Offline Persistence & WAL Engine
+  sqflite: ^2.4.6
+  path: ^1.9.1
+  path_provider: ^2.1.5
+
+  # Networking & HTTP Interceptors
+  dio: ^5.11.1
+
+  # Device Hardware & Health Sensors
+  pedometer: ^4.2.0
+  health: ^13.3.2
+  geolocator: ^14.1.2
+  flutter_foreground_task: ^11.0.3
+
+  # Secure Local Storage & Key-Value
+  flutter_secure_storage: ^11.2.0
+  shared_preferences: ^2.5.6
+
+  # Push Notifications (FCM)
+  firebase_core: ^3.12.1
+  firebase_messaging: ^15.2.4
+  flutter_local_notifications: ^19.0.0
+
+  # Utilities & QR
+  qr_flutter: ^4.1.0
+  intl: ^0.20.3
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+
+  # Property-Based Testing
+  glados: ^1.1.7
+
+  # Strict Linters & Analyzers
+  dart_code_linter: ^4.4.1
+  lint: ^2.3.0
+  sqflite_common_ffi: ^2.4.7
+
+flutter:
+  uses-material-design: true
+
+  assets:
+    - assets/db/client_sqlite_schema.sql
+    - assets/errors/error_catalog.json
+    - assets/vectors/

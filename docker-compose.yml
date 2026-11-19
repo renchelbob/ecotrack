@@ -1,0 +1,147 @@
+name: ecotrack-mvp
+
+services:
+  db:
+    image: postgis/postgis:17-3.5-alpine
+    container_name: ecotrack-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-ecotrack}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-ecotrack_dev_password_2026}
+      POSTGRES_DB: ${POSTGRES_DB:-ecotrack}
+      TZ: Europe/Moscow
+    command:
+      - "postgres"
+      - "-c"
+      - "shared_buffers=128MB"
+      - "-c"
+      - "work_mem=8MB"
+      - "-c"
+      - "maintenance_work_mem=64MB"
+      - "-c"
+      - "effective_cache_size=384MB"
+      - "-c"
+      - "max_connections=50"
+      - "-c"
+      - "random_page_cost=1.1"
+      - "-c"
+      - "log_min_duration_statement=250"
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - ecotrack_pgdata:/var/lib/postgresql/data
+      - ./contracts/schema.sql:/docker-entrypoint-initdb.d/01_schema.sql:ro
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 512M
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-ecotrack} -d ${POSTGRES_DB:-ecotrack}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    networks:
+      - ecotrack_internal
+
+  migrate:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+      target: migrations
+    container_name: ecotrack-migrate
+    restart: "no"
+    env_file:
+      - .env
+    volumes:
+      - ./contracts:/contracts:ro
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - ecotrack_internal
+
+  api:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+      target: runtime
+    image: ecotrack-api:latest
+    container_name: ecotrack-api
+    restart: unless-stopped
+    env_file:
+      - .env
+    ports:
+      - "${API_BIND_HOST:-127.0.0.1}:8000:8000"
+    volumes:
+      - ./contracts/error_catalog.json:/app/contracts/error_catalog.json:ro
+      - ./secrets:/app/secrets:ro
+    depends_on:
+      db:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 512M
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/readyz', timeout=3)",
+        ]
+      interval: 10s
+      timeout: 4s
+      retries: 5
+      start_period: 10s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    networks:
+      - ecotrack_internal
+
+  etl:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+      target: etl
+    container_name: ecotrack-etl
+    profiles:
+      - etl
+    env_file:
+      - .env
+    volumes:
+      - ./data/osm:/data/osm
+    depends_on:
+      db:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    deploy:
+      resources:
+        limits:
+          cpus: "1.5"
+          memory: 768M
+    networks:
+      - ecotrack_internal
+
+volumes:
+  ecotrack_pgdata:
+    name: ecotrack_pgdata
+
+networks:
+  ecotrack_internal:
+    name: ecotrack_internal
+    driver: bridge

@@ -1,0 +1,3036 @@
+openapi: 3.1.0
+info:
+  title: EcoTrack Backend API Contract
+  version: 1.0.0
+  summary: Contract-First REST API for EcoTrack (RF 152-FZ / 406-FZ, Hybrid Step+GPS CO2 Engine, PostGIS RSO Map)
+  description: |
+    Complete OpenAPI 3.1.0 specification for the EcoTrack mobile application and Python 3.14 FastAPI backend.
+    All state-mutating POST/PUT/PATCH/DELETE endpoints require a valid UUIDv7 `Idempotency-Key` header.
+  contact:
+    name: EcoTrack Engineering Team
+  license:
+    name: Proprietary / Academic Lab Specification
+servers:
+  - url: http://localhost:8000
+    description: Local Docker Compose Self-Hosted MVP Server
+  - url: https://api.ecotrack.ru
+    description: Russian VPS Production Environment (152-FZ Localized)
+
+tags:
+  - name: Health
+    description: Liveness and PostGIS readiness probes
+  - name: Auth & 152-FZ
+    description: OAuth 2.1 + PKCE, formal Google phone compliance, 152-FZ consents, and account erasure
+  - name: Profile & Vehicles
+    description: User profile, eco goals, personal vehicle CO2 calculator, transport presets, and mascot state
+  - name: Activity & Hybrid CO2
+    description: Daily step sensor sync, interval GPS+step track batches, and route segment transport allocations
+  - name: Statistics
+    description: Emissions time-series charts, paginated activity history, and eco-equivalents
+  - name: Ledger & Shop
+    description: Immutable point ledger, fictional partner catalog, cart checkout, QR/promo orders, and virtual items
+  - name: Social & Challenges
+    description: Friends, QR friend codes, wake-up mascot nudges, weekly CO2 leaderboard, Shared Forest, and badges
+  - name: Recycling Map (RSO)
+    description: PostGIS BBox waste point queries, source attribution, crowdsourced trust reports, and suggestions
+  - name: Push Notifications
+    description: Abstracted push notification token registration (FCM / RuStore Push / APNs)
+
+security:
+  - BearerAuth: []
+
+paths:
+  /healthz:
+    get:
+      tags: [Health]
+      operationId: getLivenessProbe
+      summary: Liveness probe for container orchestrator
+      security: []
+      responses:
+        '200':
+          description: Process is alive
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthStatusResponse'
+
+  /readyz:
+    get:
+      tags: [Health]
+      operationId: getReadinessProbe
+      summary: Readiness probe verifying PostgreSQL 17 and PostGIS 3.5 availability
+      security: []
+      responses:
+        '200':
+          description: Database and PostGIS extensions are ready
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReadinessStatusResponse'
+        '503':
+          description: Database or PostGIS check failed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/v1/auth/oauth/exchange:
+    post:
+      tags: [Auth & 152-FZ]
+      operationId: exchangeOAuthCode
+      summary: Exchange OAuth 2.1 authorization code + PKCE verifier for EcoTrack JWT session
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKeyHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OAuthExchangeRequest'
+      responses:
+        '200':
+          description: Authenticated session created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthSessionResponse'
+        '400':
+          $ref: '#/components/responses/BadRequestError'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntityError'
+
+  /api/v1/auth/refresh:
+    post:
+      tags: [Auth & 152-FZ]
+      operationId: refreshAccessToken
+      summary: Rotate refresh token and issue a new access token
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TokenRefreshRequest'
+      responses:
+        '200':
+          description: Token pair rotated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthSessionResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+
+  /api/v1/auth/logout:
+    post:
+      tags: [Auth & 152-FZ]
+      operationId: logoutSession
+      summary: Revoke active refresh token session
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LogoutRequest'
+      responses:
+        '204':
+          description: Session revoked
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+
+  /api/v1/auth/google-phone:
+    post:
+      tags: [Auth & 152-FZ]
+      operationId: submitGoogleFormalPhone
+      summary: Submit formal E.164 phone number required after Google OAuth lab-mode login (no SMS sent)
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKeyHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GoogleFormalPhoneRequest'
+      responses:
+        '200':
+          description: Formal phone number recorded and requirement flag cleared
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserProfileResponse'
+        '400':
+          $ref: '#/components/responses/BadRequestError'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntityError'
+
+  /api/v1/users/me/consents:
+    get:
+      tags: [Auth & 152-FZ]
+      operationId: listConsentHistory
+      summary: Retrieve 152-FZ personal data processing consent audit journal for current user
+      responses:
+        '200':
+          description: Consent history records
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ConsentHistoryListResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+    post:
+      tags: [Auth & 152-FZ]
+      operationId: recordConsentAction
+      summary: Grant, update, or revoke 152-FZ personal data processing consent
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKeyHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RecordConsentRequest'
+      responses:
+        '201':
+          description: Consent action logged in journal
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ConsentJournalEntry'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntityError'
+
+  /api/v1/users/me:
+    get:
+      tags: [Profile & Vehicles]
+      operationId: getMyProfile
+      summary: Get current authenticated user profile, goals, streak, mascot state, and personal vehicle
+      responses:
+        '200':
+          description: Current user profile
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserProfileResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+    patch:
+      tags: [Profile & Vehicles]
+      operationId: updateMyProfile
+      summary: Update profile display name, eco goals, stride length, GPS tracking preferences, and privacy
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKeyHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateUserProfileRequest'
+      responses:
+        '200':
+          description: Updated user profile
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserProfileResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntityError'
+    delete:
+      tags: [Auth & 152-FZ]
+      operationId: deleteMyAccount
+      summary: Permanently erase user account and all personal data under 152-FZ Article 21
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKeyHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AccountDeletionRequest'
+      responses:
+        '200':
+          description: Account erased and anonymized deletion receipt generated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AccountDeletionReceiptResponse'
+        '400':
+          $ref: '#/components/responses/BadRequestError'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+
+  /api/v1/users/me/vehicle:
+    get:
+      tags: [Profile & Vehicles]
+      operationId: getMyVehicle
+      summary: Get user's configured personal vehicle and exact CO2 per km/meter factors
+      responses:
+        '200':
+          description: Personal vehicle configuration
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserVehicleResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+    put:
+      tags: [Profile & Vehicles]
+      operationId: upsertMyVehicle
+      summary: Create or update personal vehicle fuel type and consumption per 100km
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKeyHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpsertUserVehicleRequest'
+      responses:
+        '200':
+          description: Personal vehicle saved with computed CO2 factors
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserVehicleResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntityError'
+    delete:
+      tags: [Profile & Vehicles]
+      operationId: deleteMyVehicle
+      summary: Remove configured personal vehicle (reverts personal_car slot to 192 g/km sedan default)
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKeyHeader'
+      responses:
+        '204':
+          description: Personal vehicle removed
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+
+  /api/v1/transport/presets:
+    get:
+      tags: [Profile & Vehicles]
+      operationId: listTransportEmissionPresets
+      summary: List all transport emission presets including user's dynamic personal vehicle rate
+      responses:
+        '200':
+          description: Transport emission catalog
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TransportPresetListResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+
+  /api/v1/mascot/inventory:
+    get:
+      tags: [Profile & Vehicles]
+      operationId: listMascotAccessories
+      summary: List all vector mascot accessories with unlock and equipped status
+      responses:
+        '200':
+          description: Mascot accessories catalog and user inventory
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MascotInventoryResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+
+  /api/v1/users/me/mascot/accessory:
+    put:
+      tags: [Profile & Vehicles]
+      operationId: equipMascotAccessory
+      summary: Equip or unequip an unlocked vector accessory on the interactive mascot
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKeyHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EquipMascotAccessoryRequest'
+      responses:
+        '200':
+          description: Updated mascot state
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserProfileResponse'
+        '400':
+          $ref: '#/components/responses/BadRequestError'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+
+  /api/v1/activity/steps/daily:
+    put:
+      tags: [Activity & Hybrid CO2]
+      operationId: syncDailyStepsSummary
+      summary: Sync daily sensor step count, run antifraud validation, compute hybrid CO2, and credit step points
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKeyHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SyncDailyStepsRequest'
+      responses:
+        '200':
+          description: Daily summary synced and points/CO2 updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DailyActivitySummaryResponse'
+        '400':
+          $ref: '#/components/responses/BadRequestError'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntityError'
+
+  /api/v1/activity/tracks/points:batch:
+    post:
+      tags: [Activity & Hybrid CO2]
+      operationId: uploadGpsTrackPointsBatch
+      summary: Upload batch of interval GPS coordinates paired with cumulative step sensor readings
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKeyHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GpsTrackPointsBatchRequest'
+      responses:
+        '200':
+          description: Track points ingested, classified, and daily route polyline updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GpsTrackPointsBatchResponse'
+        '400':
+          $ref: '#/components/responses/BadRequestError'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntityError'
+
+  /api/v1/activity/daily/{activity_date}:
+    get:
+      tags: [Activity & Hybrid CO2]
+      operationId: getDailyActivityAndRoute
+      summary: Get daily step summary, reconstructed GPS track polyline, motion-classified points, and allocations
+      parameters:
+        - $ref: '#/components/parameters/ActivityDatePathParam'
+      responses:
+        '200':
+          description: Full daily activity and route detail
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DailyActivityDetailResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+
+  /api/v1/activity/daily/{activity_date}/allocations:
+    put:
+      tags: [Activity & Hybrid CO2]
+      operationId: replaceDailyRouteAllocations
+      summary: Annotate or update replaced transport modes on GPS route segments (allowed for today and yesterday)
+      parameters:
+        - $ref: '#/components/parameters/ActivityDatePathParam'
+        - $ref: '#/components/parameters/IdempotencyKeyHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReplaceRouteAllocationsRequest'
+      responses:
+        '200':
+          description: Hybrid CO2 recalculated and ledger delta recorded
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DailyActivityDetailResponse'
+        '400':
+          $ref: '#/components/responses/BadRequestError'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '409':
+          $ref: '#/components/responses/ConflictError'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntityError'
+
+  /api/v1/activity/daily/{activity_date}/allocations/{allocation_id}:
+    delete:
+      tags: [Activity & Hybrid CO2]
+      operationId: deleteRouteSegmentAllocation
+      summary: Delete a single route segment allocation (today or yesterday) and revert distance to default formula
+      parameters:
+        - $ref: '#/components/parameters/ActivityDatePathParam'
+        - name: allocation_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - $ref: '#/components/parameters/IdempotencyKeyHeader'
+      responses:
+        '200':
+          description: Segment removed and hybrid CO2 recalculated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DailyActivityDetailResponse'
+        '400':
+          $ref: '#/components/responses/BadRequestError'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+
+  /api/v1/stats/emissions:
+    get:
+      tags: [Statistics]
+      operationId: getEmissionsStatistics
+      summary: Get CO2 savings and step distance chart series for days, weeks, or months
+      parameters:
+        - name: period
+          in: query
+          required: true
+          schema:
+            type: string
+            enum: [days, weeks, months]
+        - name: reference_date
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date
+      responses:
+        '200':
+          description: Aggregated emissions chart series and period summary
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EmissionsStatisticsResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+
+  /api/v1/stats/history:
+    get:
+      tags: [Statistics]
+      operationId: listActivityHistory
+      summary: Get paginated daily activity and hybrid CO2 history
+      parameters:
+        - $ref: '#/components/parameters/LimitQueryParam'
+        - $ref: '#/components/parameters/OffsetQueryParam'
+      responses:
+        '200':
+          description: Paginated daily summaries
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedActivityHistoryResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+
+  /api/v1/stats/equivalents:
+    get:
+      tags: [Statistics]
+      operationId: getEcoEquivalentsSummary
+      summary: Get physical eco-equivalents for user's saved CO2 (trees, car km avoided, charges, bottles)
+      responses:
+        '200':
+          description: Calculated eco-equivalents
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EcoEquivalentsResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+
+  /api/v1/ledger:
+    get:
+      tags: [Ledger & Shop]
+      operationId: listPointLedger
+      summary: Get current points balance and paginated immutable point_ledger history
+      parameters:
+        - $ref: '#/components/parameters/LimitQueryParam'
+        - $ref: '#/components/parameters/OffsetQueryParam'
+      responses:
+        '200':
+          description: Balance and ledger entries
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PointLedgerListResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+
+  /api/v1/shop/items:
+    get:
+      tags: [Ledger & Shop]
+      operationId: listShopCatalog
+      summary: List fictional partner coupons, QR offers, mascot accessories, and virtual items
+      parameters:
+        - name: category
+          in: query
+          required: false
+          schema:
+            type: string
+            maxLength: 64
+        - name: item_type
+          in: query
+          required: false
+          schema:
+            $ref: '#/components/schemas/ShopItemType'
+        - name: search
+          in: query
+          required: false
+          schema:
+            type: string
+            maxLength: 80
+      responses:
+        '200':
+          description: Shop catalog items and partners
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ShopCatalogResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+
+  /api/v1/shop/orders:
+    get:
+      tags: [Ledger & Shop]
+      operationId: listMyShopOrders
+      summary: List user's completed shop orders with QR payloads and promo codes
+      parameters:
+        - $ref: '#/components/parameters/LimitQueryParam'
+        - $ref: '#/components/parameters/OffsetQueryParam'
+      responses:
+        '200':
+          description: Paginated shop orders
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ShopOrderListResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+    post:
+      tags: [Ledger & Shop]
+      operationId: createShopOrder
+      summary: Checkout shop cart with atomic point_ledger deduction and daily antifraud cap verification
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKeyHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateShopOrderRequest'
+      responses:
+        '201':
+          description: Order completed and coupons/virtual items granted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ShopOrderDetail'
+        '400':
+          $ref: '#/components/responses/BadRequestError'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '409':
+          $ref: '#/components/responses/ConflictError'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntityError'
+
+  /api/v1/shop/virtual-items/streak-freeze:activate:
+    post:
+      tags: [Ledger & Shop]
+      operationId: activateStreakFreeze
+      summary: Consume one Streak Freeze from inventory to protect streak for yesterday
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKeyHeader'
+      responses:
+        '200':
+          description: Streak freeze consumed and streak preserved
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserProfileResponse'
+        '400':
+          $ref: '#/components/responses/BadRequestError'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '409':
+          $ref: '#/components/responses/ConflictError'
+
+  /api/v1/friends:
+    get:
+      tags: [Social & Challenges]
+      operationId: getFriendsAndRequests
+      summary: List accepted friends, incoming/outgoing friend requests, and own friend_code
+      responses:
+        '200':
+          description: Friends and pending requests
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FriendsOverviewResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+
+  /api/v1/friends/requests:
+    post:
+      tags: [Social & Challenges]
+      operationId: sendFriendRequest
+      summary: Send friend request using target user's friend_code (from manual entry or QR scan)
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKeyHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SendFriendRequestPayload'
+      responses:
+        '201':
+          description: Friend request created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FriendshipRecord'
+        '400':
+          $ref: '#/components/responses/BadRequestError'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+        '409':
+          $ref: '#/components/responses/ConflictError'
+
+  /api/v1/friends/requests/{friendship_id}:
+    patch:
+      tags: [Social & Challenges]
+      operationId: respondToFriendRequest
+      summary: Accept, decline, or block an incoming friend request
+      parameters:
+        - name: friendship_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - $ref: '#/components/parameters/IdempotencyKeyHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RespondFriendRequestPayload'
+      responses:
+        '200':
+          description: Friendship status updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FriendshipRecord'
+        '400':
+          $ref: '#/components/responses/BadRequestError'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+
+  /api/v1/friends/{friend_user_id}:
+    delete:
+      tags: [Social & Challenges]
+      operationId: removeFriend
+      summary: Remove an existing friend connection
+      parameters:
+        - name: friend_user_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - $ref: '#/components/parameters/IdempotencyKeyHeader'
+      responses:
+        '204':
+          description: Friend connection removed
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+
+  /api/v1/friends/{friend_user_id}/nudge:
+    post:
+      tags: [Social & Challenges]
+      operationId: sendWakeupMascotNudge
+      summary: Send a 'Wake up mascot!' push notification to a friend (max once per friend per calendar day)
+      parameters:
+        - name: friend_user_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - $ref: '#/components/parameters/IdempotencyKeyHeader'
+      responses:
+        '200':
+          description: Wake-up nudge recorded and dispatched to PushNotificationProvider
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WakeupNudgeResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+        '429':
+          $ref: '#/components/responses/TooManyRequestsError'
+
+  /api/v1/friends/leaderboard:
+    get:
+      tags: [Social & Challenges]
+      operationId: getWeeklyFriendsLeaderboard
+      summary: Get current ISO week CO2 savings leaderboard among user and accepted friends
+      responses:
+        '200':
+          description: Weekly friend ranking
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FriendsLeaderboardResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+
+  /api/v1/challenges/shared-forest/current:
+    get:
+      tags: [Social & Challenges]
+      operationId: getCurrentSharedForestChallenge
+      summary: Get active cooperative weekly 'Shared Forest' challenge progress and contributor breakdown
+      responses:
+        '200':
+          description: Cooperative challenge status
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SharedForestChallengeResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+
+  /api/v1/badges:
+    get:
+      tags: [Social & Challenges]
+      operationId: listUserBadges
+      summary: List all achievement badges with current user progress and unlock timestamps
+      responses:
+        '200':
+          description: Badges catalog with user progress
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BadgesListResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+
+  /api/v1/map/waste-points:
+    get:
+      tags: [Recycling Map (RSO)]
+      operationId: queryWastePointsBbox
+      summary: Query recycling and waste points within a PostGIS bounding box with fraction and trust filters
+      parameters:
+        - name: min_lat
+          in: query
+          required: true
+          schema:
+            type: number
+            format: double
+            minimum: -90.0
+            maximum: 90.0
+        - name: min_lon
+          in: query
+          required: true
+          schema:
+            type: number
+            format: double
+            minimum: -180.0
+            maximum: 180.0
+        - name: max_lat
+          in: query
+          required: true
+          schema:
+            type: number
+            format: double
+            minimum: -90.0
+            maximum: 90.0
+        - name: max_lon
+          in: query
+          required: true
+          schema:
+            type: number
+            format: double
+            minimum: -180.0
+            maximum: 180.0
+        - name: zoom
+          in: query
+          required: true
+          schema:
+            type: integer
+            minimum: 3
+            maximum: 20
+        - name: fractions
+          in: query
+          required: false
+          style: form
+          explode: false
+          schema:
+            type: array
+            items:
+              $ref: '#/components/schemas/WasteFractionCode'
+        - name: min_trust_score
+          in: query
+          required: false
+          schema:
+            type: number
+            format: double
+            minimum: 0.0
+            maximum: 100.0
+            default: 25.0
+        - name: include_unverified
+          in: query
+          required: false
+          schema:
+            type: boolean
+            default: false
+      responses:
+        '200':
+          description: Waste points within bounding box plus required open-data legal attribution
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WastePointsBboxResponse'
+        '400':
+          $ref: '#/components/responses/BadRequestError'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+
+  /api/v1/map/waste-points/{point_id}:
+    get:
+      tags: [Recycling Map (RSO)]
+      operationId: getWastePointDetails
+      summary: Get detailed metadata, linked open-data source records, and recent user reports for a waste point
+      parameters:
+        - name: point_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Detailed waste point record
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WastePointDetailResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+
+  /api/v1/map/waste-points/{point_id}/reports:
+    post:
+      tags: [Recycling Map (RSO)]
+      operationId: submitWastePointReport
+      summary: Submit a crowdsourced verification or issue report to update waste point trust_score
+      parameters:
+        - name: point_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - $ref: '#/components/parameters/IdempotencyKeyHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SubmitWastePointReportRequest'
+      responses:
+        '201':
+          description: Report saved and waste point trust_score updated via PostGIS trigger
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WastePointReportCreatedResponse'
+        '400':
+          $ref: '#/components/responses/BadRequestError'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntityError'
+
+  /api/v1/map/waste-points/suggestions:
+    post:
+      tags: [Recycling Map (RSO)]
+      operationId: suggestNewWastePoint
+      summary: Suggest a new community recycling point (creates isolated community_verified source + unverified point)
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKeyHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SuggestWastePointRequest'
+      responses:
+        '201':
+          description: Community waste point created in unverified state
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WastePointDetailResponse'
+        '400':
+          $ref: '#/components/responses/BadRequestError'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntityError'
+
+  /api/v1/push/tokens:
+    post:
+      tags: [Push Notifications]
+      operationId: registerPushToken
+      summary: Register or update device push notification token for FCM, RuStore Push, or APNs
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKeyHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegisterPushTokenRequest'
+      responses:
+        '200':
+          description: Push token registered
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PushTokenResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntityError'
+
+  /api/v1/push/tokens/{token}:
+    delete:
+      tags: [Push Notifications]
+      operationId: unregisterPushToken
+      summary: Unregister a push notification token on logout or permission revocation
+      parameters:
+        - name: token
+          in: path
+          required: true
+          schema:
+            type: string
+            minLength: 8
+            maxLength: 512
+      responses:
+        '204':
+          description: Push token removed
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: Short-lived HS256/EdDSA JWT access token issued by EcoTrack backend
+
+  parameters:
+    IdempotencyKeyHeader:
+      name: Idempotency-Key
+      in: header
+      required: true
+      description: Client-generated UUIDv7 idempotency key for safe offline outbox retries
+      schema:
+        type: string
+        format: uuid
+
+    ActivityDatePathParam:
+      name: activity_date
+      in: path
+      required: true
+      description: Local activity date in ISO-8601 format (YYYY-MM-DD)
+      schema:
+        type: string
+        format: date
+
+    LimitQueryParam:
+      name: limit
+      in: query
+      required: false
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 100
+        default: 20
+
+    OffsetQueryParam:
+      name: offset
+      in: query
+      required: false
+      schema:
+        type: integer
+        minimum: 0
+        default: 0
+
+  responses:
+    BadRequestError:
+      description: Invalid request parameters or business rule violation
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    UnauthorizedError:
+      description: Missing, expired, or invalid JWT bearer token
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    ForbiddenError:
+      description: Operation not permitted for current user or 152-FZ consent revoked
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    NotFoundError:
+      description: Requested resource was not found
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    ConflictError:
+      description: State conflict, duplicate entity, or insufficient points balance
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    UnprocessableEntityError:
+      description: Request payload failed Pydantic v2 schema or domain invariant validation
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    TooManyRequestsError:
+      description: Rate limit or daily cooldown exceeded
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+
+  schemas:
+    # -------------------------------------------------------------------------
+    # COMMON & ERROR ENVELOPE SCHEMAS
+    # -------------------------------------------------------------------------
+    ErrorDetailItem:
+      type: object
+      required: [field, issue]
+      properties:
+        field:
+          type: string
+        issue:
+          type: string
+
+    ErrorResponse:
+      type: object
+      required: [error_code, message, details, trace_id, timestamp]
+      properties:
+        error_code:
+          type: string
+          examples: [INSUFFICIENT_POINTS_BALANCE, EDIT_WINDOW_EXPIRED, INVALID_IDEMPOTENCY_KEY]
+        message:
+          type: string
+        details:
+          type: array
+          items:
+            $ref: '#/components/schemas/ErrorDetailItem'
+        trace_id:
+          type: string
+        timestamp:
+          type: string
+          format: date-time
+
+    HealthStatusResponse:
+      type: object
+      required: [status, version, python_runtime]
+      properties:
+        status:
+          type: string
+          enum: [ok]
+        version:
+          type: string
+        python_runtime:
+          type: string
+          examples: ["3.14"]
+
+    ReadinessStatusResponse:
+      type: object
+      required: [status, postgres_connected, postgis_version]
+      properties:
+        status:
+          type: string
+          enum: [ready]
+        postgres_connected:
+          type: boolean
+        postgis_version:
+          type: string
+          examples: ["3.5"]
+
+    # -------------------------------------------------------------------------
+    # ENUM SCHEMAS (1:1 WITH contracts/schema.sql)
+    # -------------------------------------------------------------------------
+    OAuthProviderType:
+      type: string
+      enum: [yandex, vk, google]
+
+    ConsentActionType:
+      type: string
+      enum: [granted, revoked, updated]
+
+    FuelType:
+      type: string
+      enum: [petrol_92, petrol_95, petrol_98, diesel, lpg, cng, hybrid, electric]
+
+    TransportModeCode:
+      type: string
+      enum: [bus, metro, tram, personal_car, car_compact, car_sedan, car_suv, car_ev]
+
+    TrackPointMotionClass:
+      type: string
+      enum: [unknown, walking, indoor_pacing, vehicle_suspected, stationary]
+
+    LedgerOperationType:
+      type: string
+      enum:
+        - daily_steps_reward
+        - segment_annotation_delta
+        - streak_bonus
+        - challenge_reward
+        - badge_reward
+        - shop_purchase
+        - shop_refund
+        - admin_adjustment
+
+    ShopItemType:
+      type: string
+      enum:
+        - partner_coupon
+        - partner_qr
+        - virtual_streak_freeze
+        - virtual_eco_donation
+        - mascot_accessory
+
+    OrderStatus:
+      type: string
+      enum: [completed, redeemed, refunded, expired]
+
+    FriendshipStatus:
+      type: string
+      enum: [pending, accepted, blocked]
+
+    WasteFractionCode:
+      type: string
+      enum:
+        - plastic
+        - glass
+        - paper
+        - metal
+        - tetra_pak
+        - batteries
+        - electronics
+        - clothes
+        - hazardous
+        - caps
+        - mixed_recyclables
+        - general_bin
+
+    RsoSourceType:
+      type: string
+      enum: [osm_pbf, data_mos_ru, municipal_registry, community_verified]
+
+    WastePointStatus:
+      type: string
+      enum: [active, unverified, temporarily_closed, removed]
+
+    ReportType:
+      type: string
+      enum:
+        - confirm_working
+        - overflowing
+        - missing_bin
+        - wrong_fractions
+        - inaccessible
+        - photo_update
+
+    PushPlatformType:
+      type: string
+      enum: [fcm_android, fcm_ios, rustore, apns]
+
+    MascotMoodState:
+      type: string
+      enum: [sleepy, neutral, happy, thriving, squinting]
+
+    # -------------------------------------------------------------------------
+    # AUTH & 152-FZ SCHEMAS
+    # -------------------------------------------------------------------------
+    ConsentScopeObject:
+      type: object
+      required: [personal_data_152fz, health_steps_sensor, background_geolocation]
+      properties:
+        personal_data_152fz:
+          type: boolean
+        health_steps_sensor:
+          type: boolean
+        background_geolocation:
+          type: boolean
+
+    OAuthExchangeRequest:
+      type: object
+      required:
+        - provider
+        - authorization_code
+        - code_verifier
+        - redirect_uri
+        - device_fingerprint
+        - policy_version
+        - consent_scope
+      properties:
+        provider:
+          $ref: '#/components/schemas/OAuthProviderType'
+        authorization_code:
+          type: string
+          minLength: 4
+          maxLength: 2048
+        code_verifier:
+          type: string
+          minLength: 43
+          maxLength: 128
+        redirect_uri:
+          type: string
+          format: uri
+        device_fingerprint:
+          type: string
+          minLength: 8
+          maxLength: 128
+        policy_version:
+          type: string
+          default: "1.0.0-2026"
+          maxLength: 32
+        consent_scope:
+          $ref: '#/components/schemas/ConsentScopeObject'
+
+    TokenRefreshRequest:
+      type: object
+      required: [refresh_token, device_fingerprint]
+      properties:
+        refresh_token:
+          type: string
+          minLength: 32
+          maxLength: 512
+        device_fingerprint:
+          type: string
+          minLength: 8
+          maxLength: 128
+
+    LogoutRequest:
+      type: object
+      required: [refresh_token]
+      properties:
+        refresh_token:
+          type: string
+          minLength: 32
+          maxLength: 512
+
+    GoogleFormalPhoneRequest:
+      type: object
+      required: [formal_phone_e164]
+      properties:
+        formal_phone_e164:
+          type: string
+          pattern: '^\+[1-9][0-9]{7,14}$'
+          examples: ["+79991234567"]
+
+    AuthSessionResponse:
+      type: object
+      required:
+        - access_token
+        - refresh_token
+        - token_type
+        - expires_in_seconds
+        - is_foreign_provider_lab_mode
+        - lab_mode_warning_banner
+        - user
+      properties:
+        access_token:
+          type: string
+        refresh_token:
+          type: string
+        token_type:
+          type: string
+          enum: [Bearer]
+        expires_in_seconds:
+          type: integer
+          minimum: 60
+        is_foreign_provider_lab_mode:
+          type: boolean
+        lab_mode_warning_banner:
+          type: [string, 'null']
+          description: Populated when provider=google warning about 406-FZ academic/lab mode
+        user:
+          $ref: '#/components/schemas/UserProfileResponse'
+
+    RecordConsentRequest:
+      type: object
+      required: [policy_version, action, consent_scope]
+      properties:
+        policy_version:
+          type: string
+          minLength: 1
+          maxLength: 32
+        action:
+          $ref: '#/components/schemas/ConsentActionType'
+        consent_scope:
+          $ref: '#/components/schemas/ConsentScopeObject'
+
+    ConsentJournalEntry:
+      type: object
+      required: [id, policy_version, action, consent_scope, recorded_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        policy_version:
+          type: string
+        action:
+          $ref: '#/components/schemas/ConsentActionType'
+        consent_scope:
+          $ref: '#/components/schemas/ConsentScopeObject'
+        recorded_at:
+          type: string
+          format: date-time
+
+    ConsentHistoryListResponse:
+      type: object
+      required: [is_152fz_consent_active, entries]
+      properties:
+        is_152fz_consent_active:
+          type: boolean
+        entries:
+          type: array
+          items:
+            $ref: '#/components/schemas/ConsentJournalEntry'
+
+    AccountDeletionRequest:
+      type: object
+      required: [deletion_reason, confirmation_phrase]
+      properties:
+        deletion_reason:
+          type: string
+          minLength: 3
+          maxLength: 128
+        confirmation_phrase:
+          type: string
+          enum: [DELETE_MY_DATA_152FZ]
+
+    AccountDeletionReceiptResponse:
+      type: object
+      required: [receipt_id, anonymized_user_hash, purged_at, verification_signature]
+      properties:
+        receipt_id:
+          type: string
+          format: uuid
+        anonymized_user_hash:
+          type: string
+          minLength: 64
+          maxLength: 64
+        purged_at:
+          type: string
+          format: date-time
+        verification_signature:
+          type: string
+          minLength: 64
+          maxLength: 64
+
+    # -------------------------------------------------------------------------
+    # USER PROFILE, VEHICLES & MASCOT SCHEMAS
+    # -------------------------------------------------------------------------
+    MascotVisualState:
+      type: object
+      required: [mood, daily_goal_progress_ratio, equipped_accessory_code, unlocked_accessory_codes]
+      properties:
+        mood:
+          $ref: '#/components/schemas/MascotMoodState'
+        daily_goal_progress_ratio:
+          type: number
+          format: double
+          minimum: 0.0
+        equipped_accessory_code:
+          type: [string, 'null']
+        unlocked_accessory_codes:
+          type: array
+          items:
+            type: string
+
+    UserProfileResponse:
+      type: object
+      required:
+        - id
+        - display_name
+        - friend_code
+        - requires_formal_phone
+        - points_balance
+        - lifetime_points_earned
+        - lifetime_co2_saved_grams
+        - current_streak_days
+        - longest_streak_days
+        - streak_freeze_count
+        - daily_step_goal
+        - daily_co2_goal_grams
+        - stride_length_cm
+        - gps_interval_seconds
+        - is_gps_tracking_enabled
+        - is_stats_visible_to_friends
+        - is_152fz_consent_active
+        - mascot
+        - created_at
+      properties:
+        id:
+          type: string
+          format: uuid
+        email:
+          type: [string, 'null']
+        display_name:
+          type: string
+          minLength: 1
+          maxLength: 80
+        avatar_url:
+          type: [string, 'null']
+        friend_code:
+          type: string
+          pattern: '^ECO-[A-Z0-9]{4}-[A-Z0-9]{4}$'
+        formal_phone_e164:
+          type: [string, 'null']
+        requires_formal_phone:
+          type: boolean
+        points_balance:
+          type: integer
+          minimum: 0
+        lifetime_points_earned:
+          type: integer
+          minimum: 0
+        lifetime_co2_saved_grams:
+          type: integer
+          minimum: 0
+        current_streak_days:
+          type: integer
+          minimum: 0
+        longest_streak_days:
+          type: integer
+          minimum: 0
+        streak_freeze_count:
+          type: integer
+          minimum: 0
+        last_active_local_date:
+          type: [string, 'null']
+          format: date
+        daily_step_goal:
+          type: integer
+          minimum: 1000
+          maximum: 50000
+        daily_co2_goal_grams:
+          type: integer
+          minimum: 100
+          maximum: 20000
+        stride_length_cm:
+          type: integer
+          minimum: 40
+          maximum: 120
+        gps_interval_seconds:
+          type: integer
+          minimum: 5
+          maximum: 300
+        is_gps_tracking_enabled:
+          type: boolean
+        is_stats_visible_to_friends:
+          type: boolean
+        is_152fz_consent_active:
+          type: boolean
+        mascot:
+          $ref: '#/components/schemas/MascotVisualState'
+        personal_vehicle:
+          oneOf:
+            - $ref: '#/components/schemas/UserVehicleResponse'
+            - type: 'null'
+        created_at:
+          type: string
+          format: date-time
+
+    UpdateUserProfileRequest:
+      type: object
+      properties:
+        display_name:
+          type: string
+          minLength: 1
+          maxLength: 80
+        avatar_url:
+          type: [string, 'null']
+        daily_step_goal:
+          type: integer
+          minimum: 1000
+          maximum: 50000
+        daily_co2_goal_grams:
+          type: integer
+          minimum: 100
+          maximum: 20000
+        stride_length_cm:
+          type: integer
+          minimum: 40
+          maximum: 120
+        gps_interval_seconds:
+          type: integer
+          minimum: 5
+          maximum: 300
+        is_gps_tracking_enabled:
+          type: boolean
+        is_stats_visible_to_friends:
+          type: boolean
+
+    UpsertUserVehicleRequest:
+      type: object
+      required: [vehicle_name, fuel, consumption_per_100km]
+      properties:
+        vehicle_name:
+          type: string
+          minLength: 1
+          maxLength: 80
+        fuel:
+          $ref: '#/components/schemas/FuelType'
+        consumption_per_100km:
+          type: number
+          format: double
+          exclusiveMinimum: 0.0
+          maximum: 50.0
+
+    UserVehicleResponse:
+      type: object
+      required:
+        - id
+        - vehicle_name
+        - fuel
+        - consumption_per_100km
+        - fuel_emission_factor_g_per_unit
+        - computed_co2_g_per_km
+        - computed_co2_g_per_meter
+        - updated_at
+      properties:
+        id:
+          type: string
+          format: uuid
+        vehicle_name:
+          type: string
+        fuel:
+          $ref: '#/components/schemas/FuelType'
+        consumption_per_100km:
+          type: number
+          format: double
+        fuel_emission_factor_g_per_unit:
+          type: number
+          format: double
+        computed_co2_g_per_km:
+          type: number
+          format: double
+        computed_co2_g_per_meter:
+          type: number
+          format: double
+        updated_at:
+          type: string
+          format: date-time
+
+    TransportPresetItem:
+      type: object
+      required:
+        - mode_code
+        - display_name_ru
+        - display_name_en
+        - co2_grams_per_km
+        - co2_grams_per_meter
+        - is_personal_vehicle_slot
+      properties:
+        mode_code:
+          $ref: '#/components/schemas/TransportModeCode'
+        display_name_ru:
+          type: string
+        display_name_en:
+          type: string
+        co2_grams_per_km:
+          type: number
+          format: double
+        co2_grams_per_meter:
+          type: number
+          format: double
+        is_personal_vehicle_slot:
+          type: boolean
+
+    TransportPresetListResponse:
+      type: object
+      required: [presets]
+      properties:
+        presets:
+          type: array
+          items:
+            $ref: '#/components/schemas/TransportPresetItem'
+
+    MascotAccessoryItem:
+      type: object
+      required: [code, name_ru, slot, vector_layer_key, unlock_type, is_unlocked, is_equipped]
+      properties:
+        code:
+          type: string
+        name_ru:
+          type: string
+        slot:
+          type: string
+          enum: [head, neck, glasses, aura, companion]
+        vector_layer_key:
+          type: string
+        unlock_type:
+          type: string
+          enum: [starter, shop, badge, streak]
+        is_unlocked:
+          type: boolean
+        is_equipped:
+          type: boolean
+        acquired_at:
+          type: [string, 'null']
+          format: date-time
+
+    MascotInventoryResponse:
+      type: object
+      required: [accessories]
+      properties:
+        accessories:
+          type: array
+          items:
+            $ref: '#/components/schemas/MascotAccessoryItem'
+
+    EquipMascotAccessoryRequest:
+      type: object
+      required: [accessory_code]
+      properties:
+        accessory_code:
+          type: [string, 'null']
+          maxLength: 64
+
+    # -------------------------------------------------------------------------
+    # STEPS, INTERVAL GPS TRACKS & HYBRID CO2 ALLOCATION SCHEMAS
+    # -------------------------------------------------------------------------
+    SyncDailyStepsRequest:
+      type: object
+      required: [activity_date, timezone_offset_minutes, raw_sensor_steps]
+      properties:
+        activity_date:
+          type: string
+          format: date
+        timezone_offset_minutes:
+          type: integer
+          minimum: -720
+          maximum: 840
+          default: 180
+        raw_sensor_steps:
+          type: integer
+          minimum: 0
+          maximum: 150000
+        stride_length_cm:
+          type: integer
+          minimum: 40
+          maximum: 120
+
+    DailyActivitySummaryResponse:
+      type: object
+      required:
+        - id
+        - activity_date
+        - raw_sensor_steps
+        - validated_steps
+        - stride_length_cm
+        - total_step_distance_m
+        - allocated_gps_distance_m
+        - unallocated_step_distance_m
+        - allocated_co2_saved_grams
+        - auto_default_co2_saved_grams
+        - total_co2_saved_grams
+        - points_awarded_for_day
+        - points_delta_applied
+        - points_balance
+        - is_auto_calculated
+        - antifraud_flagged
+        - last_synced_at
+      properties:
+        id:
+          type: string
+          format: uuid
+        activity_date:
+          type: string
+          format: date
+        raw_sensor_steps:
+          type: integer
+          minimum: 0
+        validated_steps:
+          type: integer
+          minimum: 0
+        stride_length_cm:
+          type: integer
+        total_step_distance_m:
+          type: number
+          format: double
+        allocated_gps_distance_m:
+          type: number
+          format: double
+        unallocated_step_distance_m:
+          type: number
+          format: double
+        allocated_co2_saved_grams:
+          type: integer
+          minimum: 0
+        auto_default_co2_saved_grams:
+          type: integer
+          minimum: 0
+        total_co2_saved_grams:
+          type: integer
+          minimum: 0
+        points_awarded_for_day:
+          type: integer
+          minimum: 0
+        points_delta_applied:
+          type: integer
+        points_balance:
+          type: integer
+          minimum: 0
+        is_auto_calculated:
+          type: boolean
+        antifraud_flagged:
+          type: boolean
+        antifraud_reason:
+          type: [string, 'null']
+        last_synced_at:
+          type: string
+          format: date-time
+
+    GpsTrackPointInput:
+      type: object
+      required: [seq_no, recorded_at, lat, lon, accuracy_m, speed_mps, cumulative_steps]
+      properties:
+        seq_no:
+          type: integer
+          minimum: 0
+        recorded_at:
+          type: string
+          format: date-time
+        lat:
+          type: number
+          format: double
+          minimum: -90.0
+          maximum: 90.0
+        lon:
+          type: number
+          format: double
+          minimum: -180.0
+          maximum: 180.0
+        accuracy_m:
+          type: number
+          format: float
+          minimum: 0.0
+        speed_mps:
+          type: number
+          format: float
+          minimum: 0.0
+        cumulative_steps:
+          type: integer
+          minimum: 0
+
+    GpsTrackPointsBatchRequest:
+      type: object
+      required: [activity_date, points]
+      properties:
+        activity_date:
+          type: string
+          format: date
+        points:
+          type: array
+          minItems: 1
+          maxItems: 500
+          items:
+            $ref: '#/components/schemas/GpsTrackPointInput'
+
+    GpsTrackPointClassified:
+      type: object
+      required:
+        - seq_no
+        - recorded_at
+        - lat
+        - lon
+        - accuracy_m
+        - speed_mps
+        - cumulative_steps
+        - delta_steps
+        - delta_distance_m
+        - motion_class
+      properties:
+        seq_no:
+          type: integer
+        recorded_at:
+          type: string
+          format: date-time
+        lat:
+          type: number
+          format: double
+        lon:
+          type: number
+          format: double
+        accuracy_m:
+          type: number
+          format: float
+        speed_mps:
+          type: number
+          format: float
+        cumulative_steps:
+          type: integer
+        delta_steps:
+          type: integer
+        delta_distance_m:
+          type: number
+          format: double
+        motion_class:
+          $ref: '#/components/schemas/TrackPointMotionClass'
+
+    GpsTrackPointsBatchResponse:
+      type: object
+      required: [track_id, activity_date, ingested_count, total_point_count, total_gps_walking_distance_m]
+      properties:
+        track_id:
+          type: string
+          format: uuid
+        activity_date:
+          type: string
+          format: date
+        ingested_count:
+          type: integer
+          minimum: 0
+        total_point_count:
+          type: integer
+          minimum: 0
+        total_gps_walking_distance_m:
+          type: number
+          format: double
+          minimum: 0.0
+
+    LatLonPair:
+      type: object
+      required: [lat, lon]
+      properties:
+        lat:
+          type: number
+          format: double
+        lon:
+          type: number
+          format: double
+
+    RouteSegmentAllocationItem:
+      type: object
+      required:
+        - id
+        - idempotency_key
+        - start_seq_no
+        - end_seq_no
+        - segment_distance_m
+        - segment_steps
+        - replaced_transport_mode
+        - applied_co2_g_per_meter
+        - confidence_factor
+        - is_auto_calculated
+        - co2_saved_grams
+        - coordinates
+      properties:
+        id:
+          type: string
+          format: uuid
+        idempotency_key:
+          type: string
+          format: uuid
+        start_seq_no:
+          type: integer
+          minimum: 0
+        end_seq_no:
+          type: integer
+          minimum: 1
+        segment_distance_m:
+          type: number
+          format: double
+          exclusiveMinimum: 0.0
+        segment_steps:
+          type: integer
+          minimum: 0
+        replaced_transport_mode:
+          $ref: '#/components/schemas/TransportModeCode'
+        applied_co2_g_per_meter:
+          type: number
+          format: double
+        confidence_factor:
+          type: number
+          format: double
+          enum: [0.7, 1.0]
+        is_auto_calculated:
+          type: boolean
+        co2_saved_grams:
+          type: integer
+          minimum: 0
+        coordinates:
+          type: array
+          minItems: 2
+          items:
+            $ref: '#/components/schemas/LatLonPair'
+
+    RouteSegmentAllocationInput:
+      type: object
+      required: [idempotency_key, start_seq_no, end_seq_no, replaced_transport_mode]
+      properties:
+        idempotency_key:
+          type: string
+          format: uuid
+        start_seq_no:
+          type: integer
+          minimum: 0
+        end_seq_no:
+          type: integer
+          minimum: 1
+        replaced_transport_mode:
+          $ref: '#/components/schemas/TransportModeCode'
+
+    ReplaceRouteAllocationsRequest:
+      type: object
+      required: [allocations]
+      properties:
+        allocations:
+          type: array
+          maxItems: 50
+          items:
+            $ref: '#/components/schemas/RouteSegmentAllocationInput'
+
+    DailyActivityDetailResponse:
+      type: object
+      required:
+        - summary
+        - is_editable
+        - total_gps_walking_distance_m
+        - track_points
+        - allocations
+        - co2_delta_applied_grams
+      properties:
+        summary:
+          $ref: '#/components/schemas/DailyActivitySummaryResponse'
+        is_editable:
+          type: boolean
+          description: True only if activity_date is today or yesterday in user's local timezone
+        total_gps_walking_distance_m:
+          type: number
+          format: double
+        track_points:
+          type: array
+          items:
+            $ref: '#/components/schemas/GpsTrackPointClassified'
+        allocations:
+          type: array
+          items:
+            $ref: '#/components/schemas/RouteSegmentAllocationItem'
+        co2_delta_applied_grams:
+          type: integer
+
+    # -------------------------------------------------------------------------
+    # STATISTICS & ECO-EQUIVALENTS SCHEMAS
+    # -------------------------------------------------------------------------
+    EmissionsBucketItem:
+      type: object
+      required:
+        - bucket_label
+        - start_date
+        - end_date
+        - validated_steps
+        - total_step_distance_m
+        - allocated_co2_saved_grams
+        - auto_default_co2_saved_grams
+        - total_co2_saved_grams
+      properties:
+        bucket_label:
+          type: string
+        start_date:
+          type: string
+          format: date
+        end_date:
+          type: string
+          format: date
+        validated_steps:
+          type: integer
+          minimum: 0
+        total_step_distance_m:
+          type: number
+          format: double
+        allocated_co2_saved_grams:
+          type: integer
+          minimum: 0
+        auto_default_co2_saved_grams:
+          type: integer
+          minimum: 0
+        total_co2_saved_grams:
+          type: integer
+          minimum: 0
+
+    EcoEquivalentsMetrics:
+      type: object
+      required:
+        - total_co2_saved_grams
+        - trees_planted_equivalent
+        - car_km_avoided
+        - smartphone_charges_equivalent
+        - plastic_bottles_recycled_equivalent
+        - led_bulb_hours_equivalent
+      properties:
+        total_co2_saved_grams:
+          type: integer
+          minimum: 0
+        trees_planted_equivalent:
+          type: number
+          format: double
+          minimum: 0.0
+        car_km_avoided:
+          type: number
+          format: double
+          minimum: 0.0
+        smartphone_charges_equivalent:
+          type: integer
+          minimum: 0
+        plastic_bottles_recycled_equivalent:
+          type: integer
+          minimum: 0
+        led_bulb_hours_equivalent:
+          type: integer
+          minimum: 0
+
+    EmissionsStatisticsResponse:
+      type: object
+      required:
+        - period
+        - period_total_co2_saved_grams
+        - period_total_steps
+        - period_total_distance_m
+        - buckets
+        - equivalents
+      properties:
+        period:
+          type: string
+          enum: [days, weeks, months]
+        period_total_co2_saved_grams:
+          type: integer
+          minimum: 0
+        period_total_steps:
+          type: integer
+          minimum: 0
+        period_total_distance_m:
+          type: number
+          format: double
+        buckets:
+          type: array
+          items:
+            $ref: '#/components/schemas/EmissionsBucketItem'
+        equivalents:
+          $ref: '#/components/schemas/EcoEquivalentsMetrics'
+
+    PaginatedActivityHistoryResponse:
+      type: object
+      required: [total_count, limit, offset, items]
+      properties:
+        total_count:
+          type: integer
+          minimum: 0
+        limit:
+          type: integer
+        offset:
+          type: integer
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/DailyActivitySummaryResponse'
+
+    EcoEquivalentsResponse:
+      type: object
+      required: [lifetime, current_week]
+      properties:
+        lifetime:
+          $ref: '#/components/schemas/EcoEquivalentsMetrics'
+        current_week:
+          $ref: '#/components/schemas/EcoEquivalentsMetrics'
+
+    # -------------------------------------------------------------------------
+    # LEDGER & FICTIONAL SHOP SCHEMAS
+    # -------------------------------------------------------------------------
+    PointLedgerItem:
+      type: object
+      required:
+        - id
+        - idempotency_key
+        - operation_type
+        - points_delta
+        - co2_delta_grams
+        - description
+        - created_at
+      properties:
+        id:
+          type: string
+          format: uuid
+        idempotency_key:
+          type: string
+          format: uuid
+        operation_type:
+          $ref: '#/components/schemas/LedgerOperationType'
+        points_delta:
+          type: integer
+        co2_delta_grams:
+          type: integer
+        reference_entity_type:
+          type: [string, 'null']
+        reference_entity_id:
+          type: [string, 'null']
+          format: uuid
+        description:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+
+    PointLedgerListResponse:
+      type: object
+      required: [points_balance, lifetime_points_earned, total_count, items]
+      properties:
+        points_balance:
+          type: integer
+          minimum: 0
+        lifetime_points_earned:
+          type: integer
+          minimum: 0
+        total_count:
+          type: integer
+          minimum: 0
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/PointLedgerItem'
+
+    ShopPartnerSummary:
+      type: object
+      required: [id, slug, name, category_name, logo_asset_key, is_fictional_disclaimer]
+      properties:
+        id:
+          type: string
+          format: uuid
+        slug:
+          type: string
+        name:
+          type: string
+        category_name:
+          type: string
+        logo_asset_key:
+          type: string
+        is_fictional_disclaimer:
+          type: string
+
+    ShopCatalogItem:
+      type: object
+      required:
+        - id
+        - sku
+        - item_type
+        - title
+        - subtitle
+        - description
+        - price_points
+        - max_per_user_per_day
+        - image_asset_key
+      properties:
+        id:
+          type: string
+          format: uuid
+        sku:
+          type: string
+        item_type:
+          $ref: '#/components/schemas/ShopItemType'
+        title:
+          type: string
+        subtitle:
+          type: string
+        description:
+          type: string
+        price_points:
+          type: integer
+          minimum: 1
+        stock_quantity:
+          type: [integer, 'null']
+        max_per_user_per_day:
+          type: integer
+          minimum: 1
+        accessory_code:
+          type: [string, 'null']
+        image_asset_key:
+          type: string
+        partner:
+          oneOf:
+            - $ref: '#/components/schemas/ShopPartnerSummary'
+            - type: 'null'
+
+    ShopCatalogResponse:
+      type: object
+      required: [fictional_shop_banner_ru, categories, items]
+      properties:
+        fictional_shop_banner_ru:
+          type: string
+          default: "Все партнёры и купоны в магазине являются вымышленными (демонстрационный режим)."
+        categories:
+          type: array
+          items:
+            type: string
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/ShopCatalogItem'
+
+    CartLineInput:
+      type: object
+      required: [shop_item_id, quantity]
+      properties:
+        shop_item_id:
+          type: string
+          format: uuid
+        quantity:
+          type: integer
+          minimum: 1
+          maximum: 10
+
+    CreateShopOrderRequest:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          minItems: 1
+          maxItems: 10
+          items:
+            $ref: '#/components/schemas/CartLineInput'
+
+    ShopOrderLineItem:
+      type: object
+      required:
+        - id
+        - shop_item_id
+        - title
+        - item_type
+        - quantity
+        - unit_price_points
+        - line_total_points
+        - coupon_code
+        - qr_payload
+      properties:
+        id:
+          type: string
+          format: uuid
+        shop_item_id:
+          type: string
+          format: uuid
+        title:
+          type: string
+        item_type:
+          $ref: '#/components/schemas/ShopItemType'
+        quantity:
+          type: integer
+        unit_price_points:
+          type: integer
+        line_total_points:
+          type: integer
+        coupon_code:
+          type: string
+        qr_payload:
+          type: string
+        expires_at:
+          type: [string, 'null']
+          format: date-time
+        redeemed_at:
+          type: [string, 'null']
+          format: date-time
+
+    ShopOrderDetail:
+      type: object
+      required:
+        - id
+        - idempotency_key
+        - status
+        - total_points
+        - remaining_points_balance
+        - item_count
+        - line_items
+        - created_at
+      properties:
+        id:
+          type: string
+          format: uuid
+        idempotency_key:
+          type: string
+          format: uuid
+        status:
+          $ref: '#/components/schemas/OrderStatus'
+        total_points:
+          type: integer
+          minimum: 1
+        remaining_points_balance:
+          type: integer
+          minimum: 0
+        item_count:
+          type: integer
+          minimum: 1
+        line_items:
+          type: array
+          items:
+            $ref: '#/components/schemas/ShopOrderLineItem'
+        created_at:
+          type: string
+          format: date-time
+
+    ShopOrderListResponse:
+      type: object
+      required: [total_count, orders]
+      properties:
+        total_count:
+          type: integer
+          minimum: 0
+        orders:
+          type: array
+          items:
+            $ref: '#/components/schemas/ShopOrderDetail'
+
+    # -------------------------------------------------------------------------
+    # SOCIAL, FRIENDS, LEADERBOARD, SHARED FOREST & BADGES SCHEMAS
+    # -------------------------------------------------------------------------
+    FriendProfileSummary:
+      type: object
+      required:
+        - friendship_id
+        - user_id
+        - display_name
+        - friend_code
+        - status
+        - current_streak_days
+        - is_stats_visible_to_friends
+        - can_send_wakeup_nudge_today
+      properties:
+        friendship_id:
+          type: string
+          format: uuid
+        user_id:
+          type: string
+          format: uuid
+        display_name:
+          type: string
+        avatar_url:
+          type: [string, 'null']
+        friend_code:
+          type: string
+        status:
+          $ref: '#/components/schemas/FriendshipStatus'
+        current_streak_days:
+          type: integer
+          minimum: 0
+        equipped_accessory_code:
+          type: [string, 'null']
+        is_stats_visible_to_friends:
+          type: boolean
+        weekly_co2_saved_grams:
+          type: [integer, 'null']
+        weekly_steps:
+          type: [integer, 'null']
+        can_send_wakeup_nudge_today:
+          type: boolean
+
+    FriendsOverviewResponse:
+      type: object
+      required: [my_friend_code, friends, incoming_requests, outgoing_requests]
+      properties:
+        my_friend_code:
+          type: string
+          pattern: '^ECO-[A-Z0-9]{4}-[A-Z0-9]{4}$'
+        friends:
+          type: array
+          items:
+            $ref: '#/components/schemas/FriendProfileSummary'
+        incoming_requests:
+          type: array
+          items:
+            $ref: '#/components/schemas/FriendProfileSummary'
+        outgoing_requests:
+          type: array
+          items:
+            $ref: '#/components/schemas/FriendProfileSummary'
+
+    SendFriendRequestPayload:
+      type: object
+      required: [friend_code]
+      properties:
+        friend_code:
+          type: string
+          pattern: '^ECO-[A-Z0-9]{4}-[A-Z0-9]{4}$'
+
+    RespondFriendRequestPayload:
+      type: object
+      required: [action]
+      properties:
+        action:
+          type: string
+          enum: [accept, decline, block]
+
+    FriendshipRecord:
+      type: object
+      required: [id, requester_id, addressee_id, status, created_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        requester_id:
+          type: string
+          format: uuid
+        addressee_id:
+          type: string
+          format: uuid
+        status:
+          $ref: '#/components/schemas/FriendshipStatus'
+        created_at:
+          type: string
+          format: date-time
+        responded_at:
+          type: [string, 'null']
+          format: date-time
+
+    WakeupNudgeResponse:
+      type: object
+      required: [nudge_id, receiver_id, nudge_date, push_delivered, sent_at]
+      properties:
+        nudge_id:
+          type: string
+          format: uuid
+        receiver_id:
+          type: string
+          format: uuid
+        nudge_date:
+          type: string
+          format: date
+        push_delivered:
+          type: boolean
+        sent_at:
+          type: string
+          format: date-time
+
+    LeaderboardEntry:
+      type: object
+      required:
+        - rank
+        - user_id
+        - display_name
+        - is_current_user
+        - is_stats_visible
+        - weekly_co2_saved_grams
+        - weekly_steps
+        - current_streak_days
+      properties:
+        rank:
+          type: integer
+          minimum: 1
+        user_id:
+          type: string
+          format: uuid
+        display_name:
+          type: string
+        avatar_url:
+          type: [string, 'null']
+        equipped_accessory_code:
+          type: [string, 'null']
+        is_current_user:
+          type: boolean
+        is_stats_visible:
+          type: boolean
+        weekly_co2_saved_grams:
+          type: integer
+          minimum: 0
+        weekly_steps:
+          type: integer
+          minimum: 0
+        current_streak_days:
+          type: integer
+          minimum: 0
+
+    FriendsLeaderboardResponse:
+      type: object
+      required: [iso_year, iso_week, week_start_date, week_end_date, entries]
+      properties:
+        iso_year:
+          type: integer
+        iso_week:
+          type: integer
+        week_start_date:
+          type: string
+          format: date
+        week_end_date:
+          type: string
+          format: date
+        entries:
+          type: array
+          items:
+            $ref: '#/components/schemas/LeaderboardEntry'
+
+    SharedForestContributorItem:
+      type: object
+      required: [user_id, display_name, contributed_co2_grams, contributed_steps]
+      properties:
+        user_id:
+          type: string
+          format: uuid
+        display_name:
+          type: string
+        avatar_url:
+          type: [string, 'null']
+        contributed_co2_grams:
+          type: integer
+          minimum: 0
+        contributed_steps:
+          type: integer
+          minimum: 0
+
+    SharedForestChallengeResponse:
+      type: object
+      required:
+        - id
+        - iso_year
+        - iso_week
+        - week_start_date
+        - week_end_date
+        - title_ru
+        - target_co2_saved_grams
+        - current_co2_saved_grams
+        - progress_ratio
+        - trees_equivalent_planted
+        - my_contributed_co2_grams
+        - is_completed
+        - top_friends_contributors
+      properties:
+        id:
+          type: string
+          format: uuid
+        iso_year:
+          type: integer
+        iso_week:
+          type: integer
+        week_start_date:
+          type: string
+          format: date
+        week_end_date:
+          type: string
+          format: date
+        title_ru:
+          type: string
+        target_co2_saved_grams:
+          type: integer
+          minimum: 1
+        current_co2_saved_grams:
+          type: integer
+          minimum: 0
+        progress_ratio:
+          type: number
+          format: double
+          minimum: 0.0
+        trees_equivalent_planted:
+          type: integer
+          minimum: 0
+        my_contributed_co2_grams:
+          type: integer
+          minimum: 0
+        is_completed:
+          type: boolean
+        top_friends_contributors:
+          type: array
+          items:
+            $ref: '#/components/schemas/SharedForestContributorItem'
+
+    BadgeCatalogProgressItem:
+      type: object
+      required:
+        - code
+        - title_ru
+        - description_ru
+        - icon_vector_key
+        - threshold_type
+        - threshold_value
+        - current_value
+        - reward_points
+        - is_unlocked
+      properties:
+        code:
+          type: string
+        title_ru:
+          type: string
+        description_ru:
+          type: string
+        icon_vector_key:
+          type: string
+        threshold_type:
+          type: string
+          enum:
+            - steps_total
+            - co2_grams_total
+            - streak_days
+            - rso_reports
+            - friends_count
+            - forest_contribution
+        threshold_value:
+          type: integer
+          minimum: 1
+        current_value:
+          type: integer
+          minimum: 0
+        reward_points:
+          type: integer
+          minimum: 0
+        reward_accessory_code:
+          type: [string, 'null']
+        is_unlocked:
+          type: boolean
+        awarded_at:
+          type: [string, 'null']
+          format: date-time
+
+    BadgesListResponse:
+      type: object
+      required: [unlocked_count, total_count, badges]
+      properties:
+        unlocked_count:
+          type: integer
+          minimum: 0
+        total_count:
+          type: integer
+          minimum: 0
+        badges:
+          type: array
+          items:
+            $ref: '#/components/schemas/BadgeCatalogProgressItem'
+
+    # -------------------------------------------------------------------------
+    # RECYCLING / WASTE MAP (RSO) SCHEMAS
+    # -------------------------------------------------------------------------
+    WastePointMapItem:
+      type: object
+      required:
+        - id
+        - title
+        - accepted_fractions
+        - lat
+        - lon
+        - status
+        - trust_score
+        - confirmations_count
+        - issues_count
+      properties:
+        id:
+          type: string
+          format: uuid
+        title:
+          type: string
+        address_text:
+          type: [string, 'null']
+        accepted_fractions:
+          type: array
+          minItems: 1
+          items:
+            $ref: '#/components/schemas/WasteFractionCode'
+        lat:
+          type: number
+          format: double
+        lon:
+          type: number
+          format: double
+        status:
+          $ref: '#/components/schemas/WastePointStatus'
+        trust_score:
+          type: number
+          format: double
+          minimum: 0.0
+          maximum: 100.0
+        confirmations_count:
+          type: integer
+          minimum: 0
+        issues_count:
+          type: integer
+          minimum: 0
+
+    WastePointsBboxResponse:
+      type: object
+      required: [attribution_banner_ru, total_returned, points]
+      properties:
+        attribution_banner_ru:
+          type: string
+          default: "© Участники OpenStreetMap (ODbL 1.0) · Портал открытых данных data.mos.ru · Муниципальные реестры"
+        total_returned:
+          type: integer
+          minimum: 0
+        points:
+          type: array
+          items:
+            $ref: '#/components/schemas/WastePointMapItem'
+
+    LinkedSourceRecordItem:
+      type: object
+      required: [source_record_id, source_type, external_record_id, license_name, match_distance_m]
+      properties:
+        source_record_id:
+          type: string
+          format: uuid
+        source_type:
+          $ref: '#/components/schemas/RsoSourceType'
+        external_record_id:
+          type: string
+        license_name:
+          type: string
+        match_distance_m:
+          type: number
+          format: double
+
+    WastePointReportItem:
+      type: object
+      required: [id, report_type, distance_to_point_m, trust_delta, created_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        report_type:
+          $ref: '#/components/schemas/ReportType'
+        comment:
+          type: [string, 'null']
+        distance_to_point_m:
+          type: number
+          format: double
+        trust_delta:
+          type: number
+          format: double
+        created_at:
+          type: string
+          format: date-time
+
+    WastePointDetailResponse:
+      type: object
+      required:
+        - id
+        - title
+        - accepted_fractions
+        - lat
+        - lon
+        - status
+        - trust_score
+        - confirmations_count
+        - issues_count
+        - attribution_text
+        - sources
+        - recent_reports
+        - updated_at
+      properties:
+        id:
+          type: string
+          format: uuid
+        title:
+          type: string
+        address_text:
+          type: [string, 'null']
+        operator_name:
+          type: [string, 'null']
+        opening_hours:
+          type: [string, 'null']
+        accepted_fractions:
+          type: array
+          minItems: 1
+          items:
+            $ref: '#/components/schemas/WasteFractionCode'
+        lat:
+          type: number
+          format: double
+        lon:
+          type: number
+          format: double
+        status:
+          $ref: '#/components/schemas/WastePointStatus'
+        trust_score:
+          type: number
+          format: double
+        confirmations_count:
+          type: integer
+        issues_count:
+          type: integer
+        attribution_text:
+          type: string
+        last_verified_at:
+          type: [string, 'null']
+          format: date-time
+        sources:
+          type: array
+          items:
+            $ref: '#/components/schemas/LinkedSourceRecordItem'
+        recent_reports:
+          type: array
+          items:
+            $ref: '#/components/schemas/WastePointReportItem'
+        updated_at:
+          type: string
+          format: date-time
+
+    SubmitWastePointReportRequest:
+      type: object
+      required: [report_type, user_lat, user_lon]
+      properties:
+        report_type:
+          $ref: '#/components/schemas/ReportType'
+        comment:
+          type: [string, 'null']
+          maxLength: 500
+        user_lat:
+          type: number
+          format: double
+          minimum: -90.0
+          maximum: 90.0
+        user_lon:
+          type: number
+          format: double
+          minimum: -180.0
+          maximum: 180.0
+
+    WastePointReportCreatedResponse:
+      type: object
+      required: [report, updated_trust_score, updated_status, points_rewarded]
+      properties:
+        report:
+          $ref: '#/components/schemas/WastePointReportItem'
+        updated_trust_score:
+          type: number
+          format: double
+        updated_status:
+          $ref: '#/components/schemas/WastePointStatus'
+        points_rewarded:
+          type: integer
+          minimum: 0
+
+    SuggestWastePointRequest:
+      type: object
+      required: [title, accepted_fractions, lat, lon]
+      properties:
+        title:
+          type: string
+          minLength: 3
+          maxLength: 160
+        address_text:
+          type: [string, 'null']
+          maxLength: 255
+        operator_name:
+          type: [string, 'null']
+          maxLength: 120
+        opening_hours:
+          type: [string, 'null']
+          maxLength: 160
+        accepted_fractions:
+          type: array
+          minItems: 1
+          maxItems: 12
+          items:
+            $ref: '#/components/schemas/WasteFractionCode'
+        lat:
+          type: number
+          format: double
+          minimum: -90.0
+          maximum: 90.0
+        lon:
+          type: number
+          format: double
+          minimum: -180.0
+          maximum: 180.0
+        comment:
+          type: [string, 'null']
+          maxLength: 500
+
+    # -------------------------------------------------------------------------
+    # PUSH NOTIFICATIONS SCHEMAS
+    # -------------------------------------------------------------------------
+    RegisterPushTokenRequest:
+      type: object
+      required: [platform, token, device_id]
+      properties:
+        platform:
+          $ref: '#/components/schemas/PushPlatformType'
+        token:
+          type: string
+          minLength: 8
+          maxLength: 512
+        device_id:
+          type: string
+          minLength: 4
+          maxLength: 128
+
+    PushTokenResponse:
+      type: object
+      required: [id, platform, device_id, is_enabled, updated_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        platform:
+          $ref: '#/components/schemas/PushPlatformType'
+        device_id:
+          type: string
+        is_enabled:
+          type: boolean
+        updated_at:
+          type: string
+          format: date-time

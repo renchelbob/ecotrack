@@ -1,0 +1,1645 @@
+/* ==========================================================================
+   EcoTrack Android App — Figma Design Tokens & Component CSS Specs
+   Device Viewport: Android Compact (412px x 917px)
+   Сгенерировано автоматически из prot.svg
+   ========================================================================== */
+
+:root {
+  /* 1. ПАЛИТРА ДИЗАЙН-СИСТЕМЫ (Grayscale Wireframe Tokens) */
+  --bg-app: #FFFFFF;
+  --bg-canvas: #1E1E1E;
+  --surface-card: #D9D9D9;
+  --surface-card-subtle: #ECECEC;
+  --surface-accent: #C4C4C4;
+  --surface-element: #B0B0B0;
+  --surface-active: #868686;
+  --border-subtle: #C4C4C4;
+  --text-primary: #1E1E1E;
+  --text-secondary: #5A5A5A;
+  --text-muted: #8C8C8C;
+
+  /* 2. СКРУГЛЕНИЯ (Border Radius / Shapes) */
+  --radius-xs: 4px;
+  --radius-sm: 8px;
+  --radius-md: 14.5px;
+  --radius-card: 20px;          /* Стандарт карточек активности (Compose RoundedCornerShape(20.dp)) */
+  --radius-button: 25px;        /* Кнопки действий */
+  --radius-pill: 27px;          /* Нижняя навигационная панель и фильтры */
+  --radius-circle: 50%;         /* Иконки-аватары */
+
+  /* 3. СЕТКА И ОТСТУПЫ (Layout Grid) */
+  --screen-width: 412px;
+  --screen-height: 917px;
+  --screen-padding-horizontal: 22px; /* Карточки занимают ровно 368px (412 - 22*2) */
+  --card-gap: 18px;
+  
+  /* 4. ОБЩИЕ КОМПОНЕНТЫ */
+  --bottom-nav-height: 54px;
+  --bottom-nav-width: 322px;    /* Плавающая пилюля навигации */
+  --bottom-nav-bottom: 27px;
+}
+
+/* Базовый экран смартфона */
+.screen-container {
+  width: var(--screen-width);
+  height: var(--screen-height);
+  background-color: var(--bg-app);
+  position: relative;
+  overflow: hidden;
+  box-sizing: border-box;
+}
+
+/* Плавающая нижняя навигация (Floating Bottom Navigation Bar) */
+.bottom-nav-bar {
+  position: absolute;
+  bottom: var(--bottom-nav-bottom);
+  left: 45px;
+  width: var(--bottom-nav-width);
+  height: var(--bottom-nav-height);
+  background: var(--surface-card);
+  border-radius: var(--radius-pill);
+  display: flex;
+  align-items: center;
+  justify-content: space-around;
+  padding: 0 16px;
+  box-sizing: border-box;
+}
+
+
+/* ==========================================================================
+   ЭКРАН: Онбординг: Шаг 1 (Onboarding_01)
+   Координаты в Figma: X=4418, Y=645
+   ========================================================================== */
+.screen-onboarding_01 {
+  /* Каркас экрана */
+  display: flex;
+  flex-direction: column;
+  padding: 30px var(--screen-padding-horizontal) 100px var(--screen-padding-horizontal);
+}
+
+/* Компонент #1: element */
+.onboarding_01-element-1 {
+  /* Геометрия из Figma: */
+  width: 568.0px;
+  height: 568.0px;
+  border-radius: 200.0px;
+  background-color: url(#paint0_radial_0_1);
+  /* Относительное положение от верха: 36.0px, слева: 139.0px */
+}
+
+/* Компонент #2: element */
+.onboarding_01-element-2 {
+  /* Геометрия из Figma: */
+  width: 452.0px;
+  height: 125.0px;
+  border-radius: 50.0px;
+  background-color: #D9D9D9;
+  /* Относительное положение от верха: 587.0px, слева: 378.0px */
+}
+
+/* Компонент #3: element */
+.onboarding_01-element-3 {
+  /* Геометрия из Figma: */
+  width: 20.0px;
+  height: 20.0px;
+  background-color: white;
+  /* Относительное положение от верха: 619.0px, слева: 193.0px */
+}
+
+/* Компонент #4: element */
+.onboarding_01-element-4 {
+  /* Геометрия из Figma: */
+  width: 20.0px;
+  height: 20.0px;
+  background-color: white;
+  /* Относительное положение от верха: 678.0px, слева: 194.0px */
+}
+
+/* Компонент #5: element */
+.onboarding_01-element-5 {
+  /* Геометрия из Figma: */
+  width: 24.0px;
+  height: 8.0px;
+  border-radius: 4.0px;
+  background-color: #D9D9D9;
+  /* Относительное положение от верха: 766.0px, слева: 174.0px */
+}
+
+/* Компонент #6: element */
+.onboarding_01-element-6 {
+  /* Геометрия из Figma: */
+  width: 7.0px;
+  height: 7.0px;
+  border-radius: 3.5px;
+  background-color: #D9D9D9;
+  /* Относительное положение от верха: 766.0px, слева: 174.0px */
+}
+
+/* Компонент #7: element */
+.onboarding_01-element-7 {
+  /* Геометрия из Figma: */
+  width: 8.0px;
+  height: 8.0px;
+  border-radius: 4.0px;
+  background-color: #D9D9D9;
+  /* Относительное положение от верха: 766.0px, слева: 213.0px */
+}
+
+/* Компонент #8: element */
+.onboarding_01-element-8 {
+  /* Геометрия из Figma: */
+  width: 8.0px;
+  height: 8.0px;
+  border-radius: 4.0px;
+  background-color: #D9D9D9;
+  /* Относительное положение от верха: 766.0px, слева: 236.0px */
+}
+
+/* Компонент #9: element */
+.onboarding_01-element-9 {
+  /* Геометрия из Figma: */
+  width: 332.0px;
+  height: 48.0px;
+  border-radius: 24.0px;
+  background-color: #D9D9D9;
+  /* Относительное положение от верха: 813.0px, слева: 40.0px */
+}
+
+
+/* ==========================================================================
+   ЭКРАН: Онбординг: Шаг 2 (Доступы) (Onboarding_02)
+   Координаты в Figma: X=4870, Y=645
+   ========================================================================== */
+.screen-onboarding_02 {
+  /* Каркас экрана */
+  display: flex;
+  flex-direction: column;
+  padding: 30px var(--screen-padding-horizontal) 100px var(--screen-padding-horizontal);
+}
+
+/* Компонент #1: element */
+.onboarding_02-element-1 {
+  /* Геометрия из Figma: */
+  width: 448.0px;
+  height: 114.0px;
+  border-radius: 50.0px;
+  background-color: #D9D9D9;
+  /* Относительное положение от верха: 151.0px, слева: 380.0px */
+}
+
+/* Компонент #2: element */
+.onboarding_02-element-2 {
+  /* Геометрия из Figma: */
+  width: 526.0px;
+  height: 791.0px;
+  border-radius: 130.0px;
+  background-color: #FAFAFA;
+  /* Относительное положение от верха: 257.0px, слева: 0.0px */
+}
+
+/* Компонент #3: element */
+.onboarding_02-element-3 {
+  /* Геометрия из Figma: */
+  width: 452.0px;
+  height: 141.0px;
+  border-radius: 50.0px;
+  background-color: #D9D9D9;
+  /* Относительное положение от верха: 408.0px, слева: 37.0px */
+}
+
+/* Компонент #4: element */
+.onboarding_02-element-4 {
+  /* Геометрия из Figma: */
+  width: 8.0px;
+  height: 8.0px;
+  border-radius: 4.0px;
+  background-color: #D9D9D9;
+  /* Относительное положение от верха: 766.0px, слева: 174.0px */
+}
+
+/* Компонент #5: element */
+.onboarding_02-element-5 {
+  /* Геометрия из Figma: */
+  width: 7.0px;
+  height: 7.0px;
+  border-radius: 3.5px;
+  background-color: #D9D9D9;
+  /* Относительное положение от верха: 766.0px, слева: 174.0px */
+}
+
+/* Компонент #6: element */
+.onboarding_02-element-6 {
+  /* Геометрия из Figma: */
+  width: 24.0px;
+  height: 8.0px;
+  border-radius: 4.0px;
+  background-color: #D9D9D9;
+  /* Относительное положение от верха: 766.0px, слева: 197.0px */
+}
+
+/* Компонент #7: element */
+.onboarding_02-element-7 {
+  /* Геометрия из Figma: */
+  width: 8.0px;
+  height: 8.0px;
+  border-radius: 4.0px;
+  background-color: #D9D9D9;
+  /* Относительное положение от верха: 766.0px, слева: 236.0px */
+}
+
+/* Компонент #8: element */
+.onboarding_02-element-8 {
+  /* Геометрия из Figma: */
+  width: 332.0px;
+  height: 48.0px;
+  border-radius: 24.0px;
+  background-color: #D9D9D9;
+  /* Относительное положение от верха: 815.0px, слева: 40.0px */
+}
+
+
+/* ==========================================================================
+   ЭКРАН: Онбординг: Шаг 3 (152-ФЗ) (Onboarding_03)
+   Координаты в Figma: X=5322, Y=645
+   ========================================================================== */
+.screen-onboarding_03 {
+  /* Каркас экрана */
+  display: flex;
+  flex-direction: column;
+  padding: 30px var(--screen-padding-horizontal) 100px var(--screen-padding-horizontal);
+}
+
+/* Компонент #1: element */
+.onboarding_03-element-1 {
+  /* Геометрия из Figma: */
+  width: 452.0px;
+  height: 121.0px;
+  border-radius: 50.0px;
+  background-color: #D9D9D9;
+  /* Относительное положение от верха: 293.0px, слева: 58.0px */
+}
+
+/* Компонент #2: element */
+.onboarding_03-element-2 {
+  /* Геометрия из Figma: */
+  width: 223.0px;
+  height: 223.0px;
+  border-radius: 111.5px;
+  background-color: #D9D9D9;
+  /* Относительное положение от верха: 441.0px, слева: 21.0px */
+}
+
+/* Компонент #3: element */
+.onboarding_03-element-3 {
+  /* Геометрия из Figma: */
+  width: 340.0px;
+  height: 41.0px;
+  border-radius: 9.5px;
+  background-color: white;
+  /* Относительное положение от верха: 699.5px, слева: 34.5px */
+}
+
+/* Компонент #4: element */
+.onboarding_03-element-4 {
+  /* Геометрия из Figma: */
+  width: 340.0px;
+  height: 41.0px;
+  border-radius: 9.5px;
+  background-color: none;
+  /* Относительное положение от верха: 699.5px, слева: 34.5px */
+}
+
+/* Компонент #5: element */
+.onboarding_03-element-5 {
+  /* Геометрия из Figma: */
+  width: 16.0px;
+  height: 16.0px;
+  background-color: white;
+  /* Относительное положение от верха: 712.0px, слева: 45.0px */
+}
+
+/* Компонент #6: element */
+.onboarding_03-element-6 {
+  /* Геометрия из Figma: */
+  width: 8.0px;
+  height: 8.0px;
+  border-radius: 4.0px;
+  background-color: #D9D9D9;
+  /* Относительное положение от верха: 766.0px, слева: 174.0px */
+}
+
+/* Компонент #7: element */
+.onboarding_03-element-7 {
+  /* Геометрия из Figma: */
+  width: 7.0px;
+  height: 7.0px;
+  border-radius: 3.5px;
+  background-color: #D9D9D9;
+  /* Относительное положение от верха: 766.0px, слева: 174.0px */
+}
+
+/* Компонент #8: element */
+.onboarding_03-element-8 {
+  /* Геометрия из Figma: */
+  width: 8.0px;
+  height: 8.0px;
+  border-radius: 4.0px;
+  background-color: #D9D9D9;
+  /* Относительное положение от верха: 766.0px, слева: 197.0px */
+}
+
+/* Компонент #9: element */
+.onboarding_03-element-9 {
+  /* Геометрия из Figma: */
+  width: 24.0px;
+  height: 8.0px;
+  border-radius: 4.0px;
+  background-color: #D9D9D9;
+  /* Относительное положение от верха: 766.0px, слева: 220.0px */
+}
+
+/* Компонент #10: element */
+.onboarding_03-element-10 {
+  /* Геометрия из Figma: */
+  width: 332.0px;
+  height: 48.0px;
+  border-radius: 24.0px;
+  background-color: #D9D9D9;
+  /* Относительное положение от верха: 815.0px, слева: 40.0px */
+}
+
+
+/* ==========================================================================
+   ЭКРАН: Главная с Маскотом (Таб 3) (Main_Mascot)
+   Координаты в Figma: X=4418, Y=1635
+   ========================================================================== */
+.screen-main_mascot {
+  /* Каркас экрана */
+  display: flex;
+  flex-direction: column;
+  padding: 30px var(--screen-padding-horizontal) 100px var(--screen-padding-horizontal);
+}
+
+/* Компонент #1: header-badge */
+.main_mascot-header-badge-1 {
+  /* Геометрия из Figma: */
+  width: 124.0px;
+  height: 57.0px;
+  border-radius: 28.5px;
+  background-color: #D9D9D9;
+  /* Относительное положение от верха: 30.0px, слева: 22.0px */
+}
+
+/* Компонент #2: header-avatar-btn */
+.main_mascot-header-avatar-btn-2 {
+  /* Геометрия из Figma: */
+  width: 56.0px;
+  height: 56.0px;
+  border-radius: 28.0px;
+  background-color: #D9D9D9;
+  /* Относительное положение от верха: 30.5px, слева: 336.0px */
+}
+
+/* Компонент #3: element */
+.main_mascot-element-3 {
+  /* Геометрия из Figma: */
+  width: 38.0px;
+  height: 37.0px;
+  border-radius: 18.5px;
+  background-color: #B0B0B0;
+  /* Относительное положение от верха: 40.0px, слева: 32.0px */
+}
+
+/* Компонент #4: card-activity */
+.main_mascot-card-activity-4 {
+  /* Геометрия из Figma: */
+  width: 368.0px;
+  height: 107.0px;
+  border-radius: 20.0px;
+  background-color: #D9D9D9;
+  /* Относительное положение от верха: 435.0px, слева: 22.0px */
+}
+
+/* Компонент #5: element */
+.main_mascot-element-5 {
+  /* Геометрия из Figma: */
+  width: 29.0px;
+  height: 29.0px;
+  border-radius: 14.5px;
+  background-color: #B0B0B0;
+  /* Относительное положение от верха: 450.0px, слева: 350.0px */
+}
+
+/* Компонент #6: pill-tag */
+.main_mascot-pill-tag-6 {
+  /* Геометрия из Figma: */
+  width: 89.1px;
+  height: 35.0px;
+  border-radius: 17.5px;
+  background-color: #C6C6C6;
+  /* Относительное положение от верха: 493.0px, слева: 276.0px */
+}
+
+/* Компонент #7: element */
+.main_mascot-element-7 {
+  /* Геометрия из Figma: */
+  width: 60.5px;
+  height: 34.9px;
+  border-radius: 17.5px;
+  background-color: #B0B0B0;
+  /* Относительное положение от верха: 493.0px, слева: 315.2px */
+}
+
+/* Компонент #8: card-activity */
+.main_mascot-card-activity-8 {
+  /* Геометрия из Figma: */
+  width: 368.0px;
+  height: 107.0px;
+  border-radius: 20.0px;
+  background-color: #D9D9D9;
+  /* Относительное положение от верха: 560.0px, слева: 22.0px */
+}
+
+/* Компонент #9: element */
+.main_mascot-element-9 {
+  /* Геометрия из Figma: */
+  width: 29.0px;
+  height: 29.0px;
+  border-radius: 14.5px;
+  background-color: #B0B0B0;
+  /* Относительное положение от верха: 571.0px, слева: 349.0px */
+}
+
+/* Компонент #10: pill-tag */
+.main_mascot-pill-tag-10 {
+  /* Геометрия из Figma: */
+  width: 89.1px;
+  height: 35.0px;
+  border-radius: 17.5px;
+  background-color: #C6C6C6;
+  /* Относительное положение от верха: 618.0px, слева: 276.0px */
+}
+
+/* Компонент #11: element */
+.main_mascot-element-11 {
+  /* Геометрия из Figma: */
+  width: 60.5px;
+  height: 34.9px;
+  border-radius: 17.5px;
+  background-color: #B0B0B0;
+  /* Относительное положение от верха: 618.0px, слева: 315.2px */
+}
+
+/* Компонент #12: action-button-center */
+.main_mascot-action-button-center-12 {
+  /* Геометрия из Figma: */
+  width: 99.0px;
+  height: 65.0px;
+  border-radius: 30.0px;
+  background-color: #C4C4C4;
+  /* Относительное положение от верха: 718.0px, слева: 153.0px */
+}
+
+/* Компонент #13: action-button-center */
+.main_mascot-action-button-center-13 {
+  /* Геометрия из Figma: */
+  width: 81.0px;
+  height: 50.0px;
+  border-radius: 25.0px;
+  background-color: #B0B0B0;
+  /* Относительное положение от верха: 726.0px, слева: 162.0px */
+}
+
+/* Компонент #14: nav-bar-pill */
+.main_mascot-nav-bar-pill-14 {
+  /* Геометрия из Figma: */
+  width: 322.0px;
+  height: 54.0px;
+  border-radius: 27.0px;
+  background-color: #D9D9D9;
+  /* Относительное положение от верха: 836.0px, слева: 45.0px */
+}
+
+/* Компонент #15: element */
+.main_mascot-element-15 {
+  /* Геометрия из Figma: */
+  width: 34.0px;
+  height: 34.0px;
+  border-radius: 17.0px;
+  background-color: #B0B0B0;
+  /* Относительное положение от верха: 846.0px, слева: 189.0px */
+}
+
+
+/* ==========================================================================
+   ЭКРАН: Калькулятор поездок (Таб 1) (Calculator)
+   Координаты в Figma: X=4870, Y=1635
+   ========================================================================== */
+.screen-calculator {
+  /* Каркас экрана */
+  display: flex;
+  flex-direction: column;
+  padding: 30px var(--screen-padding-horizontal) 100px var(--screen-padding-horizontal);
+}
+
+/* Компонент #1: element */
+.calculator-element-1 {
+  /* Геометрия из Figma: */
+  width: 367.0px;
+  height: 97.0px;
+  border-radius: 19.5px;
+  background-color: url(#paint21_linear_0_1);
+  /* Относительное положение от верха: 138.5px, слева: 22.5px */
+}
+
+/* Компонент #2: element */
+.calculator-element-2 {
+  /* Геометрия из Figma: */
+  width: 54.0px;
+  height: 54.0px;
+  border-radius: 27.0px;
+  background-color: #B0B0B0;
+  /* Относительное положение от верха: 160.0px, слева: 316.0px */
+}
+
+/* Компонент #3: element */
+.calculator-element-3 {
+  /* Геометрия из Figma: */
+  width: 97.0px;
+  height: 25.0px;
+  border-radius: 9.5px;
+  background-color: none;
+  /* Относительное положение от верха: 199.5px, слева: 44.5px */
+}
+
+/* Компонент #4: element */
+.calculator-element-4 {
+  /* Геометрия из Figma: */
+  width: 97.0px;
+  height: 25.0px;
+  border-radius: 9.5px;
+  background-color: none;
+  /* Относительное положение от верха: 199.5px, слева: 160.5px */
+}
+
+/* Компонент #5: element */
+.calculator-element-5 {
+  /* Геометрия из Figma: */
+  width: 368.0px;
+  height: 84.0px;
+  border-radius: 20.0px;
+  background-color: #CBCBCB;
+  /* Относительное положение от верха: 302.0px, слева: 22.0px */
+}
+
+/* Компонент #6: element */
+.calculator-element-6 {
+  /* Геометрия из Figma: */
+  width: 174.0px;
+  height: 107.0px;
+  border-radius: 20.0px;
+  background-color: #D9D9D9;
+  /* Относительное положение от верха: 397.0px, слева: 22.0px */
+}
+
+/* Компонент #7: element */
+.calculator-element-7 {
+  /* Геометрия из Figma: */
+  width: 174.0px;
+  height: 48.0px;
+  border-radius: 15.0px;
+  background-color: #D9D9D9;
+  /* Относительное положение от верха: 397.0px, слева: 216.0px */
+}
+
+/* Компонент #8: element */
+.calculator-element-8 {
+  /* Геометрия из Figma: */
+  width: 32.0px;
+  height: 32.0px;
+  background-color: white;
+  /* Относительное положение от верха: 410.0px, слева: 348.0px */
+}
+
+/* Компонент #9: element */
+.calculator-element-9 {
+  /* Геометрия из Figma: */
+  width: 174.0px;
+  height: 48.0px;
+  border-radius: 15.0px;
+  background-color: #D9D9D9;
+  /* Относительное положение от верха: 456.0px, слева: 216.0px */
+}
+
+/* Компонент #10: element */
+.calculator-element-10 {
+  /* Геометрия из Figma: */
+  width: 174.0px;
+  height: 84.0px;
+  border-radius: 20.0px;
+  background-color: #D9D9D9;
+  /* Относительное положение от верха: 515.0px, слева: 22.0px */
+}
+
+/* Компонент #11: element */
+.calculator-element-11 {
+  /* Геометрия из Figma: */
+  width: 174.0px;
+  height: 84.0px;
+  border-radius: 20.0px;
+  background-color: #D9D9D9;
+  /* Относительное положение от верха: 515.0px, слева: 216.0px */
+}
+
+/* Компонент #12: card-large-container */
+.calculator-card-large-container-12 {
+  /* Геометрия из Figma: */
+  width: 368.0px;
+  height: 139.0px;
+  border-radius: 15.0px;
+  background-color: #D9D9D9;
+  /* Относительное положение от верха: 632.0px, слева: 22.0px */
+}
+
+/* Компонент #13: element */
+.calculator-element-13 {
+  /* Геометрия из Figma: */
+  width: 45.0px;
+  height: 45.0px;
+  border-radius: 22.5px;
+  background-color: #B0B0B0;
+  /* Относительное положение от верха: 702.5px, слева: 66.0px */
+}
+
+/* Компонент #14: element */
+.calculator-element-14 {
+  /* Геометрия из Figma: */
+  width: 45.0px;
+  height: 45.0px;
+  border-radius: 22.5px;
+  background-color: #B0B0B0;
+  /* Относительное положение от верха: 702.5px, слева: 291.0px */
+}
+
+/* Компонент #15: nav-bar-pill */
+.calculator-nav-bar-pill-15 {
+  /* Геометрия из Figma: */
+  width: 322.0px;
+  height: 54.0px;
+  border-radius: 27.0px;
+  background-color: #D9D9D9;
+  /* Относительное положение от верха: 836.0px, слева: 45.0px */
+}
+
+/* Компонент #16: element */
+.calculator-element-16 {
+  /* Геометрия из Figma: */
+  width: 34.0px;
+  height: 34.0px;
+  border-radius: 17.0px;
+  background-color: #B0B0B0;
+  /* Относительное положение от верха: 846.0px, слева: 127.0px */
+}
+
+
+/* ==========================================================================
+   ЭКРАН: Эко-статистика (Таб 2) (Statistics)
+   Координаты в Figma: X=5322, Y=1635
+   ========================================================================== */
+.screen-statistics {
+  /* Каркас экрана */
+  display: flex;
+  flex-direction: column;
+  padding: 30px var(--screen-padding-horizontal) 100px var(--screen-padding-horizontal);
+}
+
+/* Компонент #1: card-large-container */
+.statistics-card-large-container-1 {
+  /* Геометрия из Figma: */
+  width: 368.0px;
+  height: 178.0px;
+  border-radius: 20.0px;
+  background-color: #D9D9D9;
+  /* Относительное положение от верха: 112.0px, слева: 22.0px */
+}
+
+/* Компонент #2: element */
+.statistics-element-2 {
+  /* Геометрия из Figma: */
+  width: 15.0px;
+  height: 85.0px;
+  border-radius: 7.5px;
+  background-color: #B0B0B0;
+  /* Относительное положение от верха: 163.0px, слева: 277.0px */
+}
+
+/* Компонент #3: element */
+.statistics-element-3 {
+  /* Геометрия из Figma: */
+  width: 15.0px;
+  height: 68.0px;
+  border-radius: 7.5px;
+  background-color: #B0B0B0;
+  /* Относительное положение от верха: 180.0px, слева: 125.0px */
+}
+
+/* Компонент #4: element */
+.statistics-element-4 {
+  /* Геометрия из Figma: */
+  width: 15.0px;
+  height: 54.0px;
+  border-radius: 7.5px;
+  background-color: #B0B0B0;
+  /* Относительное положение от верха: 194.0px, слева: 239.0px */
+}
+
+/* Компонент #5: element */
+.statistics-element-5 {
+  /* Геометрия из Figma: */
+  width: 15.0px;
+  height: 34.0px;
+  border-radius: 7.5px;
+  background-color: #B0B0B0;
+  /* Относительное положение от верха: 214.0px, слева: 315.0px */
+}
+
+/* Компонент #6: element */
+.statistics-element-6 {
+  /* Геометрия из Figma: */
+  width: 15.0px;
+  height: 33.0px;
+  border-radius: 7.5px;
+  background-color: #B0B0B0;
+  /* Относительное положение от верха: 215.0px, слева: 87.0px */
+}
+
+/* Компонент #7: element */
+.statistics-element-7 {
+  /* Геометрия из Figma: */
+  width: 15.0px;
+  height: 20.0px;
+  border-radius: 7.5px;
+  background-color: #B0B0B0;
+  /* Относительное положение от верха: 228.0px, слева: 163.0px */
+}
+
+/* Компонент #8: element */
+.statistics-element-8 {
+  /* Геометрия из Figma: */
+  width: 15.0px;
+  height: 20.0px;
+  border-radius: 7.5px;
+  background-color: #B0B0B0;
+  /* Относительное положение от верха: 228.0px, слева: 201.0px */
+}
+
+/* Компонент #9: card-large-container */
+.statistics-card-large-container-9 {
+  /* Геометрия из Figma: */
+  width: 368.0px;
+  height: 167.0px;
+  border-radius: 20.0px;
+  background-color: #D9D9D9;
+  /* Относительное положение от верха: 318.0px, слева: 22.0px */
+}
+
+/* Компонент #10: element */
+.statistics-element-10 {
+  /* Геометрия из Figma: */
+  width: 28.0px;
+  height: 28.0px;
+  border-radius: 14.0px;
+  background-color: #B0B0B0;
+  /* Относительное положение от верха: 384.0px, слева: 44.0px */
+}
+
+/* Компонент #11: element */
+.statistics-element-11 {
+  /* Геометрия из Figma: */
+  width: 16.0px;
+  height: 15.0px;
+  border-radius: 7.5px;
+  background-color: #B0B0B0;
+  /* Относительное положение от верха: 390.5px, слева: 333.0px */
+}
+
+/* Компонент #12: element */
+.statistics-element-12 {
+  /* Геометрия из Figma: */
+  width: 28.0px;
+  height: 28.0px;
+  border-radius: 14.0px;
+  background-color: #B0B0B0;
+  /* Относительное положение от верха: 432.0px, слева: 44.0px */
+}
+
+/* Компонент #13: element */
+.statistics-element-13 {
+  /* Геометрия из Figma: */
+  width: 16.0px;
+  height: 15.0px;
+  border-radius: 7.5px;
+  background-color: #B0B0B0;
+  /* Относительное положение от верха: 438.5px, слева: 336.0px */
+}
+
+/* Компонент #14: card-large-container */
+.statistics-card-large-container-14 {
+  /* Геометрия из Figma: */
+  width: 368.0px;
+  height: 238.0px;
+  border-radius: 20.0px;
+  background-color: #D9D9D9;
+  /* Относительное положение от верха: 514.0px, слева: 22.0px */
+}
+
+/* Компонент #15: nav-bar-pill */
+.statistics-nav-bar-pill-15 {
+  /* Геометрия из Figma: */
+  width: 322.0px;
+  height: 54.0px;
+  border-radius: 27.0px;
+  background-color: #D9D9D9;
+  /* Относительное положение от верха: 836.0px, слева: 45.0px */
+}
+
+/* Компонент #16: element */
+.statistics-element-16 {
+  /* Геометрия из Figma: */
+  width: 34.0px;
+  height: 34.0px;
+  border-radius: 17.0px;
+  background-color: #B0B0B0;
+  /* Относительное положение от верха: 846.0px, слева: 68.0px */
+}
+
+
+/* ==========================================================================
+   ЭКРАН: Профиль и Настройки (Таб 5) (Profile_Settings)
+   Координаты в Figma: X=6682, Y=1635
+   ========================================================================== */
+.screen-profile_settings {
+  /* Каркас экрана */
+  display: flex;
+  flex-direction: column;
+  padding: 30px var(--screen-padding-horizontal) 100px var(--screen-padding-horizontal);
+}
+
+/* Компонент #1: card-large-container */
+.profile_settings-card-large-container-1 {
+  /* Геометрия из Figma: */
+  width: 368.0px;
+  height: 183.0px;
+  border-radius: 20.0px;
+  background-color: #D9D9D9;
+  /* Относительное положение от верха: 91.0px, слева: 22.0px */
+}
+
+/* Компонент #2: element */
+.profile_settings-element-2 {
+  /* Геометрия из Figma: */
+  width: 348.0px;
+  height: 89.0px;
+  border-radius: 20.0px;
+  background-color: #E9E9E9;
+  /* Относительное положение от верха: 104.0px, слева: 32.0px */
+}
+
+/* Компонент #3: element */
+.profile_settings-element-3 {
+  /* Геометрия из Figma: */
+  width: 62.0px;
+  height: 62.0px;
+  border-radius: 30.0px;
+  background-color: #C2C2C2;
+  /* Относительное положение от верха: 117.0px, слева: 50.0px */
+}
+
+/* Компонент #4: element */
+.profile_settings-element-4 {
+  /* Геометрия из Figma: */
+  width: 348.0px;
+  height: 54.0px;
+  border-radius: 15.0px;
+  background-color: #E9E9E9;
+  /* Относительное положение от верха: 203.0px, слева: 32.0px */
+}
+
+/* Компонент #5: element */
+.profile_settings-element-5 {
+  /* Геометрия из Figma: */
+  width: 31.0px;
+  height: 31.0px;
+  background-color: white;
+  /* Относительное положение от верха: 214.5px, слева: 50.0px */
+}
+
+/* Компонент #6: card-large-container */
+.profile_settings-card-large-container-6 {
+  /* Геометрия из Figma: */
+  width: 368.0px;
+  height: 253.0px;
+  border-radius: 20.0px;
+  background-color: #D9D9D9;
+  /* Относительное положение от верха: 293.0px, слева: 22.0px */
+}
+
+/* Компонент #7: element */
+.profile_settings-element-7 {
+  /* Геометрия из Figma: */
+  width: 38.0px;
+  height: 38.0px;
+  border-radius: 19.0px;
+  background-color: #E9E9E9;
+  /* Относительное положение от верха: 307.0px, слева: 43.0px */
+}
+
+/* Компонент #8: element */
+.profile_settings-element-8 {
+  /* Геометрия из Figma: */
+  width: 38.0px;
+  height: 38.0px;
+  border-radius: 19.0px;
+  background-color: #E9E9E9;
+  /* Относительное положение от верха: 365.0px, слева: 43.0px */
+}
+
+/* Компонент #9: element */
+.profile_settings-element-9 {
+  /* Геометрия из Figma: */
+  width: 38.0px;
+  height: 38.0px;
+  border-radius: 19.0px;
+  background-color: #E9E9E9;
+  /* Относительное положение от верха: 423.0px, слева: 43.0px */
+}
+
+/* Компонент #10: element */
+.profile_settings-element-10 {
+  /* Геометрия из Figma: */
+  width: 38.0px;
+  height: 38.0px;
+  border-radius: 19.0px;
+  background-color: #E9E9E9;
+  /* Относительное положение от верха: 481.0px, слева: 43.0px */
+}
+
+/* Компонент #11: card-large-container */
+.profile_settings-card-large-container-11 {
+  /* Геометрия из Figma: */
+  width: 368.0px;
+  height: 136.0px;
+  border-radius: 20.0px;
+  background-color: #D9D9D9;
+  /* Относительное положение от верха: 566.0px, слева: 21.0px */
+}
+
+/* Компонент #12: element */
+.profile_settings-element-12 {
+  /* Геометрия из Figma: */
+  width: 38.0px;
+  height: 38.0px;
+  border-radius: 19.0px;
+  background-color: #E9E9E9;
+  /* Относительное положение от верха: 582.0px, слева: 43.0px */
+}
+
+/* Компонент #13: element */
+.profile_settings-element-13 {
+  /* Геометрия из Figma: */
+  width: 38.0px;
+  height: 38.0px;
+  border-radius: 19.0px;
+  background-color: #E9E9E9;
+  /* Относительное положение от верха: 640.0px, слева: 43.0px */
+}
+
+/* Компонент #14: nav-bar-pill */
+.profile_settings-nav-bar-pill-14 {
+  /* Геометрия из Figma: */
+  width: 322.0px;
+  height: 54.0px;
+  border-radius: 27.0px;
+  background-color: #D9D9D9;
+  /* Относительное положение от верха: 836.0px, слева: 45.0px */
+}
+
+/* Компонент #15: element */
+.profile_settings-element-15 {
+  /* Геометрия из Figma: */
+  width: 34.0px;
+  height: 34.0px;
+  border-radius: 17.0px;
+  background-color: #B0B0B0;
+  /* Относительное положение от верха: 846.0px, слева: 310.0px */
+}
+
+
+/* ==========================================================================
+   ЭКРАН: Магазин промокодов (Таб 4) (Shop_Catalog)
+   Координаты в Figma: X=4870, Y=2654
+   ========================================================================== */
+.screen-shop_catalog {
+  /* Каркас экрана */
+  display: flex;
+  flex-direction: column;
+  padding: 30px var(--screen-padding-horizontal) 100px var(--screen-padding-horizontal);
+}
+
+/* Компонент #1: element */
+.shop_catalog-element-1 {
+  /* Геометрия из Figma: */
+  width: 96.0px;
+  height: 40.0px;
+  border-radius: 12.0px;
+  background-color: #D9D9D9;
+  /* Относительное положение от верха: 94.0px, слева: 18.0px */
+}
+
+/* Компонент #2: element */
+.shop_catalog-element-2 {
+  /* Геометрия из Figma: */
+  width: 40.0px;
+  height: 40.0px;
+  border-radius: 10.0px;
+  background-color: #D9D9D9;
+  /* Относительное положение от верха: 94.0px, слева: 353.0px */
+}
+
+/* Компонент #3: element */
+.shop_catalog-element-3 {
+  /* Геометрия из Figma: */
+  width: 26.0px;
+  height: 26.0px;
+  border-radius: 13.0px;
+  background-color: #B0B0B0;
+  /* Относительное положение от верха: 101.0px, слева: 33.5px */
+}
+
+/* Компонент #4: element */
+.shop_catalog-element-4 {
+  /* Геометрия из Figma: */
+  width: 375.0px;
+  height: 40.0px;
+  border-radius: 15.0px;
+  background-color: #D9D9D9;
+  /* Относительное положение от верха: 148.0px, слева: 18.0px */
+}
+
+/* Компонент #5: element */
+.shop_catalog-element-5 {
+  /* Геометрия из Figma: */
+  width: 180.0px;
+  height: 110.0px;
+  border-radius: 15.0px;
+  background-color: url(#paint7_linear_0_1);
+  /* Относительное положение от верха: 201.0px, слева: 18.0px */
+}
+
+/* Компонент #6: element */
+.shop_catalog-element-6 {
+  /* Геометрия из Figma: */
+  width: 180.0px;
+  height: 110.0px;
+  border-radius: 15.0px;
+  background-color: url(#paint8_linear_0_1);
+  /* Относительное положение от верха: 201.0px, слева: 213.0px */
+}
+
+/* Компонент #7: element */
+.shop_catalog-element-7 {
+  /* Геометрия из Figma: */
+  width: 48.0px;
+  height: 48.0px;
+  background-color: white;
+  /* Относительное положение от верха: 224.0px, слева: 37.0px */
+}
+
+/* Компонент #8: element */
+.shop_catalog-element-8 {
+  /* Геометрия из Figma: */
+  width: 68.0px;
+  height: 25.0px;
+  border-radius: 9.5px;
+  background-color: #D9D9D9;
+  /* Относительное положение от верха: 342.5px, слева: 34.0px */
+}
+
+/* Компонент #9: element */
+.shop_catalog-element-9 {
+  /* Геометрия из Figma: */
+  width: 68.0px;
+  height: 25.0px;
+  border-radius: 9.5px;
+  background-color: none;
+  /* Относительное положение от верха: 342.5px, слева: 34.0px */
+}
+
+/* Компонент #10: element */
+.shop_catalog-element-10 {
+  /* Геометрия из Figma: */
+  width: 68.0px;
+  height: 25.0px;
+  border-radius: 9.5px;
+  background-color: none;
+  /* Относительное положение от верха: 342.5px, слева: 119.0px */
+}
+
+/* Компонент #11: element */
+.shop_catalog-element-11 {
+  /* Геометрия из Figma: */
+  width: 78.0px;
+  height: 25.0px;
+  border-radius: 9.5px;
+  background-color: none;
+  /* Относительное положение от верха: 342.5px, слева: 204.0px */
+}
+
+/* Компонент #12: element */
+.shop_catalog-element-12 {
+  /* Геометрия из Figma: */
+  width: 78.0px;
+  height: 25.0px;
+  border-radius: 9.5px;
+  background-color: none;
+  /* Относительное положение от верха: 342.5px, слева: 299.0px */
+}
+
+/* Компонент #13: element */
+.shop_catalog-element-13 {
+  /* Геометрия из Figma: */
+  width: 412.0px;
+  height: 585.0px;
+  border-radius: 30.0px;
+  background-color: #ECECEC;
+  /* Относительное положение от верха: 386.0px, слева: 0.0px */
+}
+
+/* Компонент #14: element */
+.shop_catalog-element-14 {
+  /* Геометрия из Figma: */
+  width: 246.5px;
+  height: 131.0px;
+  border-radius: 15.0px;
+  background-color: #D1D1D1;
+  /* Относительное положение от верха: 409.0px, слева: 29.0px */
+}
+
+/* Компонент #15: element */
+.shop_catalog-element-15 {
+  /* Геометрия из Figma: */
+  width: 106.5px;
+  height: 131.0px;
+  border-radius: 15.0px;
+  background-color: #D1D1D1;
+  /* Относительное положение от верха: 409.0px, слева: 275.5px */
+}
+
+/* Компонент #16: element */
+.shop_catalog-element-16 {
+  /* Геометрия из Figma: */
+  width: 226.4px;
+  height: 33.0px;
+  border-radius: 15.0px;
+  background-color: #B0B0B0;
+  /* Относительное положение от верха: 420.0px, слева: 36.7px */
+}
+
+/* Компонент #17: element */
+.shop_catalog-element-17 {
+  /* Геометрия из Figma: */
+  width: 91.1px;
+  height: 59.0px;
+  border-radius: 15.0px;
+  background-color: #B0B0B0;
+  /* Относительное положение от верха: 420.0px, слева: 283.2px */
+}
+
+/* Компонент #18: element */
+.shop_catalog-element-18 {
+  /* Геометрия из Figma: */
+  width: 19.0px;
+  height: 19.0px;
+  border-radius: 9.5px;
+  background-color: #D1D1D1;
+  /* Относительное положение от верха: 440.0px, слева: 343.0px */
+}
+
+/* Компонент #19: element */
+.shop_catalog-element-19 {
+  /* Геометрия из Figma: */
+  width: 91.1px;
+  height: 28.0px;
+  border-radius: 14.0px;
+  background-color: white;
+  /* Относительное положение от верха: 503.0px, слева: 283.2px */
+}
+
+/* Компонент #20: element */
+.shop_catalog-element-20 {
+  /* Геометрия из Figma: */
+  width: 246.5px;
+  height: 131.0px;
+  border-radius: 15.0px;
+  background-color: #D1D1D1;
+  /* Относительное положение от верха: 553.0px, слева: 26.0px */
+}
+
+/* Компонент #21: element */
+.shop_catalog-element-21 {
+  /* Геометрия из Figma: */
+  width: 106.5px;
+  height: 131.0px;
+  border-radius: 15.0px;
+  background-color: #D1D1D1;
+  /* Относительное положение от верха: 553.0px, слева: 272.5px */
+}
+
+/* Компонент #22: element */
+.shop_catalog-element-22 {
+  /* Геометрия из Figma: */
+  width: 226.4px;
+  height: 33.0px;
+  border-radius: 15.0px;
+  background-color: #B0B0B0;
+  /* Относительное положение от верха: 564.0px, слева: 33.7px */
+}
+
+/* Компонент #23: element */
+.shop_catalog-element-23 {
+  /* Геометрия из Figma: */
+  width: 91.1px;
+  height: 59.0px;
+  border-radius: 15.0px;
+  background-color: #B0B0B0;
+  /* Относительное положение от верха: 564.0px, слева: 280.2px */
+}
+
+/* Компонент #24: element */
+.shop_catalog-element-24 {
+  /* Геометрия из Figma: */
+  width: 19.0px;
+  height: 19.0px;
+  border-radius: 9.5px;
+  background-color: #D1D1D1;
+  /* Относительное положение от верха: 584.0px, слева: 343.0px */
+}
+
+/* Компонент #25: element */
+.shop_catalog-element-25 {
+  /* Геометрия из Figma: */
+  width: 91.1px;
+  height: 28.0px;
+  border-radius: 14.0px;
+  background-color: white;
+  /* Относительное положение от верха: 647.0px, слева: 280.2px */
+}
+
+/* Компонент #26: nav-bar-pill */
+.shop_catalog-nav-bar-pill-26 {
+  /* Геометрия из Figma: */
+  width: 322.0px;
+  height: 54.0px;
+  border-radius: 27.0px;
+  background-color: #D9D9D9;
+  /* Относительное положение от верха: 836.0px, слева: 45.0px */
+}
+
+/* Компонент #27: element */
+.shop_catalog-element-27 {
+  /* Геометрия из Figma: */
+  width: 34.0px;
+  height: 34.0px;
+  border-radius: 17.0px;
+  background-color: #B0B0B0;
+  /* Относительное положение от верха: 846.0px, слева: 251.0px */
+}
+
+
+/* ==========================================================================
+   ЭКРАН: Магазин: Корзина (Shop_Cart)
+   Координаты в Figma: X=5322, Y=2654
+   ========================================================================== */
+.screen-shop_cart {
+  /* Каркас экрана */
+  display: flex;
+  flex-direction: column;
+  padding: 30px var(--screen-padding-horizontal) 100px var(--screen-padding-horizontal);
+}
+
+/* Компонент #1: element */
+.shop_cart-element-1 {
+  /* Геометрия из Figma: */
+  width: 38.0px;
+  height: 38.0px;
+  border-radius: 19.0px;
+  background-color: white;
+  /* Относительное положение от верха: 54.0px, слева: 20.0px */
+}
+
+/* Компонент #2: element */
+.shop_cart-element-2 {
+  /* Геометрия из Figma: */
+  width: 38.0px;
+  height: 38.0px;
+  border-radius: 19.0px;
+  background-color: white;
+  /* Относительное положение от верха: 54.0px, слева: 350.0px */
+}
+
+/* Компонент #3: element */
+.shop_cart-element-3 {
+  /* Геометрия из Figma: */
+  width: 368.0px;
+  height: 89.0px;
+  border-radius: 20.0px;
+  background-color: #D9D9D9;
+  /* Относительное положение от верха: 178.0px, слева: 20.0px */
+}
+
+/* Компонент #4: element */
+.shop_cart-element-4 {
+  /* Геометрия из Figma: */
+  width: 16.0px;
+  height: 16.0px;
+  background-color: white;
+  /* Относительное положение от верха: 194.0px, слева: 351.0px */
+}
+
+/* Компонент #5: element */
+.shop_cart-element-5 {
+  /* Геометрия из Figma: */
+  width: 19.0px;
+  height: 19.0px;
+  border-radius: 9.5px;
+  background-color: #B0B0B0;
+  /* Относительное положение от верха: 235.0px, слева: 347.0px */
+}
+
+/* Компонент #6: element */
+.shop_cart-element-6 {
+  /* Геометрия из Figma: */
+  width: 368.0px;
+  height: 89.0px;
+  border-radius: 20.0px;
+  background-color: #D9D9D9;
+  /* Относительное положение от верха: 281.0px, слева: 20.0px */
+}
+
+/* Компонент #7: element */
+.shop_cart-element-7 {
+  /* Геометрия из Figma: */
+  width: 16.0px;
+  height: 16.0px;
+  background-color: white;
+  /* Относительное положение от верха: 297.0px, слева: 351.0px */
+}
+
+/* Компонент #8: element */
+.shop_cart-element-8 {
+  /* Геометрия из Figma: */
+  width: 19.0px;
+  height: 19.0px;
+  border-radius: 9.5px;
+  background-color: #B0B0B0;
+  /* Относительное положение от верха: 338.0px, слева: 347.0px */
+}
+
+/* Компонент #9: element */
+.shop_cart-element-9 {
+  /* Геометрия из Figma: */
+  width: 411.0px;
+  height: 369.0px;
+  border-radius: 30.0px;
+  background-color: white;
+  /* Относительное положение от верха: 597.0px, слева: 1.0px */
+}
+
+/* Компонент #10: card-large-container */
+.shop_cart-card-large-container-10 {
+  /* Геометрия из Figma: */
+  width: 368.0px;
+  height: 136.0px;
+  border-radius: 20.0px;
+  background-color: #D9D9D9;
+  /* Относительное положение от верха: 619.0px, слева: 22.0px */
+}
+
+/* Компонент #11: element */
+.shop_cart-element-11 {
+  /* Геометрия из Figma: */
+  width: 18.0px;
+  height: 18.0px;
+  border-radius: 9.0px;
+  background-color: #B0B0B0;
+  /* Относительное положение от верха: 633.5px, слева: 344.0px */
+}
+
+/* Компонент #12: element */
+.shop_cart-element-12 {
+  /* Геометрия из Figma: */
+  width: 18.0px;
+  height: 18.0px;
+  border-radius: 9.0px;
+  background-color: #B0B0B0;
+  /* Относительное положение от верха: 719.5px, слева: 343.0px */
+}
+
+/* Компонент #13: element */
+.shop_cart-element-13 {
+  /* Геометрия из Figma: */
+  width: 362.0px;
+  height: 39.0px;
+  border-radius: 15.0px;
+  background-color: #B0B0B0;
+  /* Относительное положение от верха: 769.0px, слева: 25.0px */
+}
+
+/* Компонент #14: nav-bar-pill */
+.shop_cart-nav-bar-pill-14 {
+  /* Геометрия из Figma: */
+  width: 322.0px;
+  height: 54.0px;
+  border-radius: 27.0px;
+  background-color: #D9D9D9;
+  /* Относительное положение от верха: 836.0px, слева: 45.0px */
+}
+
+/* Компонент #15: element */
+.shop_cart-element-15 {
+  /* Геометрия из Figma: */
+  width: 34.0px;
+  height: 34.0px;
+  border-radius: 17.0px;
+  background-color: #D9D9D9;
+  /* Относительное положение от верха: 846.0px, слева: 251.0px */
+}
+
+
+/* ==========================================================================
+   ЭКРАН: Магазин: QR-код заказа (Shop_QR)
+   Координаты в Figma: X=5774, Y=2654
+   ========================================================================== */
+.screen-shop_qr {
+  /* Каркас экрана */
+  display: flex;
+  flex-direction: column;
+  padding: 30px var(--screen-padding-horizontal) 100px var(--screen-padding-horizontal);
+}
+
+/* Компонент #1: element */
+.shop_qr-element-1 {
+  /* Геометрия из Figma: */
+  width: 38.0px;
+  height: 38.0px;
+  border-radius: 19.0px;
+  background-color: #D9D9D9;
+  /* Относительное положение от верха: 54.0px, слева: 29.0px */
+}
+
+/* Компонент #2: card-large-container */
+.shop_qr-card-large-container-2 {
+  /* Геометрия из Figma: */
+  width: 368.0px;
+  height: 135.0px;
+  border-radius: 20.0px;
+  background-color: #D9D9D9;
+  /* Относительное положение от верха: 172.0px, слева: 22.0px */
+}
+
+/* Компонент #3: element */
+.shop_qr-element-3 {
+  /* Геометрия из Figma: */
+  width: 37.0px;
+  height: 37.0px;
+  background-color: white;
+  /* Относительное положение от верха: 222.0px, слева: 328.0px */
+}
+
+/* Компонент #4: element */
+.shop_qr-element-4 {
+  /* Геометрия из Figma: */
+  width: 78.0px;
+  height: 25.0px;
+  border-radius: 9.5px;
+  background-color: #B0B0B0;
+  /* Относительное положение от верха: 243.5px, слева: 41.5px */
+}
+
+/* Компонент #5: element */
+.shop_qr-element-5 {
+  /* Геометрия из Figma: */
+  width: 78.0px;
+  height: 25.0px;
+  border-radius: 9.5px;
+  background-color: none;
+  /* Относительное положение от верха: 243.5px, слева: 41.5px */
+}
+
+/* Компонент #6: element */
+.shop_qr-element-6 {
+  /* Геометрия из Figma: */
+  width: 37.0px;
+  height: 37.0px;
+  background-color: white;
+  /* Относительное положение от верха: 250.0px, слева: 323.0px */
+}
+
+/* Компонент #7: element */
+.shop_qr-element-7 {
+  /* Геометрия из Figma: */
+  width: 78.0px;
+  height: 25.0px;
+  border-radius: 9.5px;
+  background-color: #B0B0B0;
+  /* Относительное положение от верха: 266.5px, слева: 41.5px */
+}
+
+/* Компонент #8: element */
+.shop_qr-element-8 {
+  /* Геометрия из Figma: */
+  width: 78.0px;
+  height: 25.0px;
+  border-radius: 9.5px;
+  background-color: none;
+  /* Относительное положение от верха: 266.5px, слева: 41.5px */
+}
+
+/* Компонент #9: card-large-container */
+.shop_qr-card-large-container-9 {
+  /* Геометрия из Figma: */
+  width: 368.0px;
+  height: 135.0px;
+  border-radius: 20.0px;
+  background-color: #D9D9D9;
+  /* Относительное положение от верха: 326.0px, слева: 22.0px */
+}
+
+/* Компонент #10: element */
+.shop_qr-element-10 {
+  /* Геометрия из Figma: */
+  width: 37.0px;
+  height: 37.0px;
+  background-color: white;
+  /* Относительное положение от верха: 376.0px, слева: 328.0px */
+}
+
+/* Компонент #11: element */
+.shop_qr-element-11 {
+  /* Геометрия из Figma: */
+  width: 78.0px;
+  height: 25.0px;
+  border-radius: 9.5px;
+  background-color: #B0B0B0;
+  /* Относительное положение от верха: 397.5px, слева: 41.5px */
+}
+
+/* Компонент #12: element */
+.shop_qr-element-12 {
+  /* Геометрия из Figma: */
+  width: 78.0px;
+  height: 25.0px;
+  border-radius: 9.5px;
+  background-color: none;
+  /* Относительное положение от верха: 397.5px, слева: 41.5px */
+}
+
+/* Компонент #13: element */
+.shop_qr-element-13 {
+  /* Геометрия из Figma: */
+  width: 37.0px;
+  height: 37.0px;
+  background-color: white;
+  /* Относительное положение от верха: 404.0px, слева: 323.0px */
+}
+
+/* Компонент #14: element */
+.shop_qr-element-14 {
+  /* Геометрия из Figma: */
+  width: 78.0px;
+  height: 25.0px;
+  border-radius: 9.5px;
+  background-color: none;
+  /* Относительное положение от верха: 420.5px, слева: 41.5px */
+}
+
+/* Компонент #15: nav-bar-pill */
+.shop_qr-nav-bar-pill-15 {
+  /* Геометрия из Figma: */
+  width: 322.0px;
+  height: 54.0px;
+  border-radius: 27.0px;
+  background-color: #D9D9D9;
+  /* Относительное положение от верха: 836.0px, слева: 45.0px */
+}
+
+/* Компонент #16: element */
+.shop_qr-element-16 {
+  /* Геометрия из Figma: */
+  width: 34.0px;
+  height: 34.0px;
+  border-radius: 17.0px;
+  background-color: #D9D9D9;
+  /* Относительное положение от верха: 846.0px, слева: 251.0px */
+}
+
