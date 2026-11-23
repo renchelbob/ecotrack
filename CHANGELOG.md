@@ -4,6 +4,8 @@
 
 ## [Unreleased]
 
+## [0.1.0] — 2026-11-23
+
 ### Added
 - Регламент командной разработки по модели Atlassian Gitflow (`docs/GIT_FLOW.md`).
 - Регламент работы с конфигурациями, секретами и релизами (`docs/RELEASE_AND_CONFIG.md`).
