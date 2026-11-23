@@ -1,0 +1,14 @@
+# Базовый владелец репозитория (до подключения GitHub-аккаунтов команды)
+* @renchelbob
+
+# Зоны ответственности по ролям EcoTrack (заменить @renchelbob после выдачи доступов):
+# /contracts/          -> Tech Lead + Android Dev 1 + Android Dev 2 (CONTRACT_RFC)
+/contracts/            @renchelbob
+# /backend/, /scripts/ -> Tech Lead
+/backend/              @renchelbob
+/scripts/              @renchelbob
+# /mobile/             -> Android Dev 1 & Android Dev 2 / QA
+/mobile/               @renchelbob
+# /.github/, /docs/    -> PM / Team Lead & Tech Lead
+/.github/              @renchelbob
+/docs/                 @renchelbob

@@ -1,0 +1,209 @@
+name: EcoTrack CD & Release
+
+on:
+  push:
+    branches:
+      - develop
+    tags:
+      - 'v*.*.*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  packages: write
+
+jobs:
+  publish-staging:
+    name: Publish Staging Container & Deploy Bundle
+    if: github.ref == 'refs/heads/develop' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-24.04
+    environment: staging
+    timeout-minutes: 15
+    services:
+      postgis:
+        image: postgis/postgis:17-3.5-alpine
+        env:
+          POSTGRES_USER: ecotrack
+          POSTGRES_PASSWORD: staging_smoke_password
+          POSTGRES_DB: ecotrack
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd="pg_isready -U ecotrack -d ecotrack"
+          --health-interval=5s
+          --health-timeout=3s
+          --health-retries=10
+          --health-start-period=10s
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Setup Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and push staging image to GHCR
+        uses: docker/build-push-action@v6
+        with:
+          context: ./backend
+          target: runtime
+          push: true
+          tags: |
+            ghcr.io/renchelbob/ecotrack-api:staging
+            ghcr.io/renchelbob/ecotrack-api:sha-${{ github.sha }}
+
+      - name: Run deployment readiness smoke check
+        env:
+          PGPASSWORD: staging_smoke_password
+        run: |
+          if ! command -v psql >/dev/null 2>&1; then
+            sudo apt-get update
+            sudo apt-get install -y --no-install-recommends postgresql-client
+          fi
+          psql -h 127.0.0.1 -U ecotrack -d ecotrack -v ON_ERROR_STOP=1 -f contracts/schema.sql
+          docker run --rm ghcr.io/renchelbob/ecotrack-api:staging \
+            python -c "import fastapi, asyncpg, pydantic, jwt, icontract; print('staging-runtime-ready')"
+
+      - name: Prepare staging deploy bundle
+        run: |
+          mkdir -p /tmp/staging-bundle/contracts
+          cp contracts/schema.sql contracts/openapi.yaml contracts/error_catalog.json /tmp/staging-bundle/contracts/
+          cp .env.example /tmp/staging-bundle/.env.example
+          cat << 'EOF' > /tmp/staging-bundle/docker-compose.deploy.yml
+          name: ecotrack-staging
+          services:
+            db:
+              image: postgis/postgis:17-3.5-alpine
+              restart: unless-stopped
+              environment:
+                POSTGRES_USER: ${POSTGRES_USER:-ecotrack}
+                POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-ecotrack_dev_password_2026}
+                POSTGRES_DB: ${POSTGRES_DB:-ecotrack}
+                TZ: Europe/Moscow
+              ports:
+                - "127.0.0.1:5432:5432"
+              volumes:
+                - ecotrack_pgdata:/var/lib/postgresql/data
+                - ./contracts/schema.sql:/docker-entrypoint-initdb.d/01_schema.sql:ro
+              healthcheck:
+                test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-ecotrack} -d ${POSTGRES_DB:-ecotrack}"]
+                interval: 5s
+                timeout: 3s
+                retries: 10
+            api:
+              image: ghcr.io/renchelbob/ecotrack-api:staging
+              restart: unless-stopped
+              env_file:
+                - .env
+              ports:
+                - "${API_BIND_HOST:-127.0.0.1}:8000:8000"
+              volumes:
+                - ./contracts/error_catalog.json:/app/contracts/error_catalog.json:ro
+              depends_on:
+                db:
+                  condition: service_healthy
+          volumes:
+            ecotrack_pgdata:
+          EOF
+
+      - name: Upload staging deploy bundle artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ecotrack-staging-deploy-bundle
+          path: /tmp/staging-bundle
+          retention-days: 30
+
+  publish-production:
+    name: Publish Production Release
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-24.04
+    environment: production
+    timeout-minutes: 15
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Setup Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and push release image to GHCR
+        uses: docker/build-push-action@v6
+        with:
+          context: ./backend
+          target: runtime
+          push: true
+          tags: |
+            ghcr.io/renchelbob/ecotrack-api:${{ github.ref_name }}
+            ghcr.io/renchelbob/ecotrack-api:latest
+
+      - name: Package production deploy bundle
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          mkdir -p /tmp/release-bundle/contracts
+          cp contracts/schema.sql contracts/openapi.yaml contracts/error_catalog.json /tmp/release-bundle/contracts/
+          cp .env.example CHANGELOG.md /tmp/release-bundle/
+          cat << EOF > /tmp/release-bundle/docker-compose.deploy.yml
+          name: ecotrack-prod
+          services:
+            db:
+              image: postgis/postgis:17-3.5-alpine
+              restart: unless-stopped
+              environment:
+                POSTGRES_USER: \${POSTGRES_USER:-ecotrack}
+                POSTGRES_PASSWORD: \${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+                POSTGRES_DB: \${POSTGRES_DB:-ecotrack}
+                TZ: Europe/Moscow
+              ports:
+                - "127.0.0.1:5432:5432"
+              volumes:
+                - ecotrack_pgdata:/var/lib/postgresql/data
+                - ./contracts/schema.sql:/docker-entrypoint-initdb.d/01_schema.sql:ro
+              healthcheck:
+                test: ["CMD-SHELL", "pg_isready -U \${POSTGRES_USER:-ecotrack} -d \${POSTGRES_DB:-ecotrack}"]
+                interval: 5s
+                timeout: 3s
+                retries: 10
+            api:
+              image: ghcr.io/renchelbob/ecotrack-api:${RELEASE_TAG}
+              restart: unless-stopped
+              env_file:
+                - .env
+              ports:
+                - "\${API_BIND_HOST:-127.0.0.1}:8000:8000"
+              volumes:
+                - ./contracts/error_catalog.json:/app/contracts/error_catalog.json:ro
+              depends_on:
+                db:
+                  condition: service_healthy
+          volumes:
+            ecotrack_pgdata:
+          EOF
+          tar -czf "/tmp/ecotrack-${RELEASE_TAG}-deploy-bundle.tar.gz" -C /tmp/release-bundle .
+
+      - name: Create or update GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          ARCHIVE="/tmp/ecotrack-${RELEASE_TAG}-deploy-bundle.tar.gz"
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            gh release upload "$RELEASE_TAG" "$ARCHIVE" contracts/openapi.yaml --clobber
+          else
+            gh release create "$RELEASE_TAG" "$ARCHIVE" contracts/openapi.yaml \
+              --title "EcoTrack ${RELEASE_TAG}" \
+              --generate-notes
+          fi
