@@ -15,6 +15,11 @@ DECLARE
     v_trust NUMERIC(5, 2);
     v_status waste_point_status;
     v_caught BOOLEAN;
+    v_uid UUID;
+    v_ledger_id UUID;
+    v_balance INT;
+    v_earned INT;
+    v_cnt INT;
 BEGIN
     SELECT COUNT(*) INTO v_tables
     FROM information_schema.tables
@@ -164,5 +169,60 @@ BEGIN
     END IF;
 
     DELETE FROM waste_points WHERE id = v_point_id;
+
+    INSERT INTO users (display_name, friend_code)
+    VALUES ('CI Smoke User', 'ECO-TEST-0001')
+    RETURNING id INTO v_uid;
+
+    INSERT INTO point_ledger (user_id, idempotency_key, operation_type, points_delta, description)
+    VALUES (v_uid, uuid_generate_v7(), 'daily_steps_reward', 100, 'CI smoke credit')
+    RETURNING id INTO v_ledger_id;
+
+    SELECT points_balance, lifetime_points_earned INTO v_balance, v_earned
+    FROM users
+    WHERE id = v_uid;
+    IF v_balance <> 100 OR v_earned <> 100 THEN
+        RAISE EXCEPTION 'trg_point_ledger_sync_balance failed: balance=%, earned=%', v_balance, v_earned;
+    END IF;
+
+    v_caught := FALSE;
+    BEGIN
+        UPDATE point_ledger SET points_delta = 500 WHERE id = v_ledger_id;
+    EXCEPTION WHEN integrity_constraint_violation THEN
+        v_caught := TRUE;
+    END;
+    IF NOT v_caught THEN
+        RAISE EXCEPTION 'trg_point_ledger_immutable failed to block UPDATE';
+    END IF;
+
+    v_caught := FALSE;
+    BEGIN
+        DELETE FROM point_ledger WHERE id = v_ledger_id;
+    EXCEPTION WHEN integrity_constraint_violation THEN
+        v_caught := TRUE;
+    END;
+    IF NOT v_caught THEN
+        RAISE EXCEPTION 'trg_point_ledger_immutable failed to block direct DELETE';
+    END IF;
+
+    v_caught := FALSE;
+    BEGIN
+        INSERT INTO point_ledger (user_id, idempotency_key, operation_type, points_delta, description)
+        VALUES (v_uid, uuid_generate_v7(), 'shop_purchase', -150, 'CI smoke overdraft');
+    EXCEPTION WHEN check_violation THEN
+        v_caught := TRUE;
+    END;
+    IF NOT v_caught THEN
+        RAISE EXCEPTION 'CHECK (points_balance >= 0) failed to reject overdraft';
+    END IF;
+
+    PERFORM set_config('ecotrack.in_152fz_account_erasure', 'true', true);
+    DELETE FROM users WHERE id = v_uid;
+
+    SELECT COUNT(*) INTO v_cnt FROM point_ledger WHERE user_id = v_uid;
+    IF v_cnt <> 0 THEN
+        RAISE EXCEPTION '152-FZ cascade deletion left % rows in point_ledger', v_cnt;
+    END IF;
+
     RAISE NOTICE 'POSTGIS_SMOKE_OK';
 END $$;
