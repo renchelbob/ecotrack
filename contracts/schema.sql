@@ -183,7 +183,7 @@ CREATE TABLE users (
     email VARCHAR(254),
     display_name VARCHAR(80) NOT NULL CHECK (char_length(trim(display_name)) >= 1),
     avatar_url TEXT,
-    friend_code VARCHAR(12) NOT NULL UNIQUE CHECK (friend_code ~ '^ECO-[A-Z0-9]{4}-[A-Z0-9]{4}$'),
+    friend_code VARCHAR(13) NOT NULL UNIQUE CHECK (friend_code ~ '^ECO-[A-Z0-9]{4}-[A-Z0-9]{4}$'),
     formal_phone_e164 VARCHAR(20) CHECK (
         formal_phone_e164 IS NULL OR formal_phone_e164 ~ '^\+[1-9][0-9]{7,14}$'
     ),
