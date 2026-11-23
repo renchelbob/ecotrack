@@ -4,6 +4,14 @@
 
 ## [Unreleased]
 
+## [0.1.1] — 2026-11-23
+
+### Fixed
+- Расширена колонка `users.friend_code` с `VARCHAR(12)` до `VARCHAR(13)` в `contracts/schema.sql` для соответствия шаблону `^ECO-[A-Z0-9]{4}-[A-Z0-9]{4}$` (по согласованному `CONTRACT_RFC`).
+
+### Added
+- В `scripts/verify_postgis_smoke.sql` добавлены smoke-проверки вставки в `users`, начисления в `point_ledger`, триггеров `trg_point_ledger_sync_balance` и `trg_point_ledger_immutable`, ограничения `CHECK (points_balance >= 0)` и каскадного удаления аккаунта по 152-ФЗ.
+
 ## [0.1.0] — 2026-11-23
 
 ### Added
