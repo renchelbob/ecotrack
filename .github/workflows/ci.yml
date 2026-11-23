@@ -1,0 +1,218 @@
+name: EcoTrack CI
+
+on:
+  pull_request:
+    branches:
+      - develop
+      - main
+      - 'release/*'
+  push:
+    branches:
+      - develop
+      - main
+      - 'release/*'
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  contracts-and-config:
+    name: Contracts & Config Gate
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup uv and Python 3.14
+        uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.14"
+
+      - name: Verify cross-contract parity
+        run: uv run --with pyyaml python scripts/verify_contracts.py
+
+      - name: Verify mobile asset parity with contracts
+        run: |
+          diff -u contracts/client_sqlite_schema.sql mobile/assets/db/client_sqlite_schema.sql
+          diff -u contracts/error_catalog.json mobile/assets/errors/error_catalog.json
+
+      - name: Validate .env.example and docker-compose.yml
+        run: |
+          for key in POSTGRES_USER POSTGRES_PASSWORD POSTGRES_DB DATABASE_URL JWT_SECRET_KEY FZ152_DELETION_HMAC_SECRET; do
+            grep -q "^${key}=" .env.example
+          done
+          cp .env.example .env
+          docker compose config --quiet
+          rm -f .env
+
+      - name: Scan repository for hardcoded tokens
+        run: |
+          if git grep -nE '(ghp_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|AIza[0-9A-Za-z_-]{30,}|sk-[A-Za-z0-9]{20,})'; then
+            echo "Detected potential plaintext secret in tracked files."
+            exit 1
+          fi
+
+      - name: Enforce Git Flow PR branch rules
+        if: github.event_name == 'pull_request'
+        env:
+          HEAD_REF: ${{ github.head_ref }}
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          echo "Checking Git Flow rule: $HEAD_REF -> $BASE_REF"
+          case "$BASE_REF" in
+            develop)
+              if ! echo "$HEAD_REF" | grep -Eq '^(feature/EC-[0-9]+-[a-z0-9-]+|bugfix/EC-[0-9]+-[a-z0-9-]+|release/v[0-9]+\.[0-9]+\.[0-9]+|hotfix/EC-[0-9]+-[a-z0-9-]+)$'; then
+                echo "Branch '$HEAD_REF' does not match Git Flow naming for target 'develop'."
+                exit 1
+              fi
+              ;;
+            main)
+              if ! echo "$HEAD_REF" | grep -Eq '^(release/v[0-9]+\.[0-9]+\.[0-9]+|hotfix/EC-[0-9]+-[a-z0-9-]+)$'; then
+                echo "Only release/v* or hotfix/EC-* branches may target 'main' (got '$HEAD_REF')."
+                exit 1
+              fi
+              ;;
+            release/*)
+              if ! echo "$HEAD_REF" | grep -Eq '^(bugfix/EC-[0-9]+-[a-z0-9-]+|hotfix/EC-[0-9]+-[a-z0-9-]+)$'; then
+                echo "Only bugfix/EC-* or hotfix/EC-* branches may target '$BASE_REF' (got '$HEAD_REF')."
+                exit 1
+              fi
+              ;;
+          esac
+
+  postgis-schema-smoke:
+    name: PostGIS 17 Schema Smoke
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    services:
+      postgis:
+        image: postgis/postgis:17-3.5-alpine
+        env:
+          POSTGRES_USER: ecotrack
+          POSTGRES_PASSWORD: ci_test_password
+          POSTGRES_DB: ecotrack
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd="pg_isready -U ecotrack -d ecotrack"
+          --health-interval=5s
+          --health-timeout=3s
+          --health-retries=10
+          --health-start-period=10s
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Ensure psql client is available
+        run: |
+          if ! command -v psql >/dev/null 2>&1; then
+            sudo apt-get update
+            sudo apt-get install -y --no-install-recommends postgresql-client
+          fi
+
+      - name: Load canonical PostgreSQL 17 + PostGIS 3.5 schema
+        env:
+          PGPASSWORD: ci_test_password
+        run: psql -h 127.0.0.1 -U ecotrack -d ecotrack -v ON_ERROR_STOP=1 -f contracts/schema.sql
+
+      - name: Run PostGIS and trigger smoke checks
+        env:
+          PGPASSWORD: ci_test_password
+        run: psql -h 127.0.0.1 -U ecotrack -d ecotrack -v ON_ERROR_STOP=1 -f scripts/verify_postgis_smoke.sql
+
+  code-quality-gates:
+    name: Code Quality Gates
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup uv and Python 3.14
+        uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.14"
+
+      - name: Verify backend dependency resolution
+        working-directory: backend
+        run: |
+          uv pip compile pyproject.toml --python-version 3.14 > /dev/null
+          uv pip compile pyproject.toml --group dev --python-version 3.14 > /dev/null
+
+      - name: Run backend linters and tests when Python modules exist
+        working-directory: backend
+        run: |
+          PY_APP_FILES=$(find app -name "*.py" 2>/dev/null || true)
+          PY_TEST_FILES=$(find tests -name "*.py" 2>/dev/null || true)
+          if [ -n "$PY_APP_FILES" ] || [ -n "$PY_TEST_FILES" ]; then
+            uv sync --no-install-project
+            uv run ruff check app tests
+            uv run ruff format --check app tests
+            uv run basedpyright --level error
+            if find tests -name "test_*.py" | grep -q .; then
+              uv run pytest -v
+            fi
+          else
+            echo "Backend source directories contain placeholder skeletons only; lint/test gates ready for first feature PR." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Validate mobile config files and conditional Dart checks
+        run: |
+          uv run --with pyyaml python -c "
+          import yaml, pathlib
+          for p in ['mobile/pubspec.yaml', 'mobile/analysis_options.yaml']:
+              yaml.safe_load(pathlib.Path(p).read_text(encoding='utf-8'))
+          print('Mobile YAML configs valid.')
+          "
+          DART_FILES=$(find mobile/lib mobile/test -name "*.dart" 2>/dev/null || true)
+          if [ -n "$DART_FILES" ]; then
+            echo "Dart files detected: mobile CI requires Flutter SDK execution."
+            echo "Dart files detected in mobile/lib or mobile/test." >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "Mobile source directories contain placeholder skeletons only; Dart config validated." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Run Flutter checks when Dart source exists
+        if: ${{ hashFiles('mobile/lib/**/*.dart', 'mobile/test/**/*.dart') != '' }}
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Execute Flutter format, analyze and tests
+        if: ${{ hashFiles('mobile/lib/**/*.dart', 'mobile/test/**/*.dart') != '' }}
+        working-directory: mobile
+        run: |
+          flutter pub get
+          dart format --output=none --set-exit-if-changed lib test
+          flutter analyze --fatal-infos --fatal-warnings
+          if find test -name "*_test.dart" | grep -q .; then
+            flutter test
+          fi
+
+  docker-build-readiness:
+    name: Docker Runtime Build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build compact Python 3.14 runtime target
+        run: docker build --target runtime -t ecotrack-api:ci ./backend
+
+      - name: Check runtime image footprint and smoke imports
+        run: |
+          PY_KB=$(docker run --rm ecotrack-api:ci sh -c "du -sk /usr/local /app | awk '{s+=\$1} END {print s}'")
+          PY_MB=$((PY_KB / 1024))
+          UID_ACTUAL=$(docker run --rm ecotrack-api:ci id -u)
+          echo "Python 3.14 runtime + venv footprint: ${PY_MB} MB (budget <= 100 MB), UID=${UID_ACTUAL}" >> "$GITHUB_STEP_SUMMARY"
+          test "$UID_ACTUAL" = "10001"
+          test "$PY_MB" -le 100
+          docker run --rm ecotrack-api:ci python -c "import fastapi, asyncpg, pydantic, jwt, icontract; print('runtime-ok')"
