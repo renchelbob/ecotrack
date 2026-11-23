@@ -4,6 +4,9 @@
 
 ## [Unreleased]
 
+### Removed
+- Из каталога `screens/` удалены черновики (`01..06`, `10..13`), 23 дубликата `screen_*.png`, устаревший Kotlin-файл `EcoTrackDesignTokens.kt`, а также неиспользуемые `index.html`, `css/index.html` и `screens_layout_specs.css`; оставлены 13 финальных экранов и общая панорама `wireframes.png`.
+
 ## [0.1.1] — 2026-11-23
 
 ### Fixed
