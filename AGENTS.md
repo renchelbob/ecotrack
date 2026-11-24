@@ -38,23 +38,29 @@ ecotrack/
 │   ├── assets/                         # Bundled SQLite DDL, vector mascot layers, partner logos
 │   ├── lib/                            # Feature-first BLoC architecture
 │   └── test/                           # Glados PBT, SQLite outbox tests, Impeller frame benchmarks
+├── screens/                            # LOCKED VISUAL REFERENCE CANON (READ-ONLY DURING FEATURE WORK)
+│   ├── wireframes.png                  # Overall navigation & Architectural Wireframe Grayscale panorama
+│   ├── 07_Onboarding_... — 09_...      # 07..09: Onboarding & 152-FZ screens (in-place OAuth on 09)
+│   └── 14_Main_... — 23_Shop_...       # 14..23: Final screens (Home, Calc/Map, Stats, Profile, Shop/Orders)
 └── scripts/                            # OWNED BY DEVELOPER 1
     ├── verify_contracts.py             # Validates SQL <-> OpenAPI <-> Error Catalog parity
+    ├── verify_mobile_gates.py          # Validates /screens/ canon, mobile configs, static bans & tests
     └── osm_ingest/                     # Geofabrik OSM PBF + data.mos.ru + municipal ETL into PostGIS
 ```
 
 ### Ownership Boundaries & 3-File High-Complexity Exception
 | Role | Write Access | Read-Only Access |
 | :--- | :--- | :--- |
-| **Developer 1 (Backend, Data & DevOps)** | `/backend/**`, `/scripts/**`, `/docker-compose.yml`, `/Makefile` (backend targets), **PLUS 3 High-Complexity Mobile Modules** (see below) | `/contracts/**`, `/specs/**`, `/mobile/**` (except the 3 delegated modules) |
-| **Developer 2 (Flutter Mobile Client)** | `/mobile/**` (except initial authorship of the 3 delegated core modules), `/Makefile` (mobile targets) | `/contracts/**`, `/specs/**`, `/backend/**` |
-| **Feature AI Coding Agents** | Strictly scoped to the assigned workspace (`/backend/**` OR `/mobile/**`) | `/contracts/**`, `/specs/**`, `/AGENTS.md` |
+| **UI/UX Designer / PM / Team Lead** | `/screens/**` (`wireframes.png`, `07..09`, `14..23` — **LOCKED VISUAL REFERENCE CANON**), `/specs/01-product-and-ux-spec.md` | `/contracts/**`, `/mobile/**`, `/backend/**` |
+| **Developer 1 (Backend, Data & DevOps)** | `/backend/**`, `/scripts/**`, `/docker-compose.yml`, `/Makefile` (backend targets), **PLUS 3 High-Complexity Mobile Modules** (see below) | `/contracts/**`, `/specs/**`, `/screens/**`, `/mobile/**` (except the 3 delegated modules) |
+| **Developer 2 (Flutter Mobile Client)** | `/mobile/**` (except initial authorship of the 3 delegated core modules), `/Makefile` (mobile targets) | `/contracts/**`, `/specs/**`, `/screens/**`, `/backend/**` |
+| **Feature AI Coding Agents** | Strictly scoped to the assigned workspace (`/backend/**` OR `/mobile/**`) | `/contracts/**`, `/specs/**`, `/screens/**`, `/AGENTS.md` |
 
 > **3-File High-Complexity Delegation Protocol**:
 > Due to high mathematical and algorithmic complexity (vector Bézier curves, distributed queue FSM, and map spatial polyline hit-testing), **Developer 1** (leveraging advanced reasoning models such as OpenAI Codex/o1/o3) authors and delivers the following 3 self-contained mobile modules:
-> 1. `mobile/lib/features/mascot/presentation/widgets/mascot_vector_painter.dart` (fox mascot Canvas geometry, mood transitions, 5 vector accessories).
+> 1. `mobile/lib/features/home_mascot/presentation/widgets/mascot_vector_painter.dart` (fox mascot Canvas geometry, mood transitions, 5 vector accessories).
 > 2. `mobile/lib/core/database/outbox_dispatcher.dart` (offline mutation outbox FSM with causal barriers, exponential backoff, coalescing).
-> 3. `mobile/lib/features/map/presentation/screens/map_activity_screen.dart` (dual-mode `flutter_map` instance with `LayerHitNotifier` clickable polylines).
+> 3. `mobile/lib/features/map_activity/presentation/screens/map_activity_screen.dart` (dual-mode `flutter_map` instance with `LayerHitNotifier` clickable polylines).
 >
 > **Sequencing**: Developer 1 delivers these 3 standalone files early. **Developer 2** consumes them as pre-verified building blocks, assembling all surrounding screens, BLoCs, router branches, and standard UI.
 
@@ -76,15 +82,15 @@ Files inside `/contracts/` (`schema.sql`, `client_sqlite_schema.sql`, `openapi.y
 
 ## 3. Progressive Disclosure Index (Context Routing Table)
 
-To prevent context-window bloat and hallucination, AI agents **MUST NOT** load all files in `/specs/` at once. Load **only** the specification file(s) mapped to your active task:
+To prevent context-window bloat and hallucination, AI agents **MUST NOT** load all files in `/specs/` at once. Load **only** the specification file(s) mapped to your active task; for any Flutter UI implementation, **ALWAYS** inspect the matching reference PNG(s) in `screens/*.png` first:
 
-| Active Task / Domain | Required Contract File(s) | Required Spec File (`specs/...`) |
+| Active Task / Domain | Required Contract File(s) | Required Spec & Visual Canon (`specs/...`, `screens/...`) |
 | :--- | :--- | :--- |
-| **UI screens, 5-tab navigation, Russian copy, Mascot UX, 152-FZ modals** | `contracts/openapi.yaml`, `contracts/error_catalog.json` | `specs/01-product-and-ux-spec.md` |
+| **UI screens, 5-tab navigation, Russian copy, Mascot UX, 152-FZ modals** | `contracts/openapi.yaml`, `contracts/error_catalog.json` | `specs/01-product-and-ux-spec.md`, **`screens/*.png` (mandatory before any UI implementation)** |
 | **Hybrid CO₂ formula, vehicle L/100km math, GPS+steps motion classifier, antifraud, RSO trust math** | `contracts/schema.sql`, `contracts/openapi.yaml` | `specs/02-domain-math-and-algorithms.md` |
 | **FastAPI endpoints, OAuth 2.1 + PKCE, `asyncpg` queries, `point_ledger`, 152-FZ erasure, Push** | `contracts/schema.sql`, `contracts/openapi.yaml`, `contracts/error_catalog.json` | `specs/03-backend-architecture-and-152fz.md` |
 | **PostGIS BBox queries, OSM PBF `osmium` filter, `data.mos.ru` ingestion, RSO deduplication** | `contracts/schema.sql`, `contracts/openapi.yaml` | `specs/04-postgis-and-rso-data-pipeline.md` |
-| **Flutter BLoC, `go_router`, `dio` interceptors, `flutter_map` dual mode, custom vector mascot painter** | `contracts/openapi.yaml`, `contracts/error_catalog.json` | `specs/05-mobile-flutter-architecture.md`, `.agents/skills/` |
+| **Flutter BLoC, `go_router`, `dio` interceptors, `flutter_map` dual mode, custom vector mascot painter** | `contracts/openapi.yaml`, `contracts/error_catalog.json` | `specs/05-mobile-flutter-architecture.md`, **`screens/*.png` (for UI/screen widgets)**, `.agents/skills/` |
 | **SQLite WAL storage, `offline_mutation_outbox`, `health` + `pedometer` sync, `geolocator` foreground task** | `contracts/client_sqlite_schema.sql`, `contracts/openapi.yaml` | `specs/06-offline-sync-and-sensors.md` |
 | **Dockerfile (`<= 100 MB` Python 3.14), `docker-compose.yml`, local laptop & Russian VPS deployment** | `contracts/schema.sql` | `specs/07-devops-docker-and-vps-deployment.md` |
 | **Linters, `icontract`+`CrossHair`, `Hypothesis`+`Schemathesis`+`glados`, Stress & Concurrency gates** | All 4 files in `/contracts/` | `specs/08-verification-and-quality-gates.md` |
@@ -111,6 +117,7 @@ Every developer and AI agent must enforce these hard bans. Any PR violating a si
 - **NO ORM Magic in Runtime Queries**: Do not use SQLAlchemy ORM lazy-loading or session state in runtime request handlers. Use explicit parameterized SQL via `asyncpg` pools (`Alembic` is used strictly in the `migrations` CLI group for schema versioning).
 
 ### 4.4 Mobile (Flutter / Dart `^3.13.4`) Bans
+- **NO Visual Drift from `/screens/`**: Every Flutter screen, layout hierarchy, card geometry, Architectural Wireframe Grayscale palette (`#FFFFFF` / `#1E1E1E` / `#D9D9D9`), line-art fox mascot style, and 5-tab bottom bar MUST match the corresponding PNG in `/screens/`. Every mobile AI agent MUST inspect the matching PNGs in `/screens/` before writing UI code; dark themes, green gradients, or generic Material templates are strictly forbidden. Sole intentional product delta: on `screens/09_Onboarding_Compact_08_Подарки_и_152ФЗ.png`, the 3 OAuth 2.1 + PKCE buttons (`"Войти через Яндекс ID"`, `"Войти через VK ID"`, `"Войти через Google (Лаб. режим)"`) replace `"Начать >"` directly in-place (with no separate email/password or `/auth/login` screen).
 - **NO `build_runner` or Code Generation**: `freezed`, `json_serializable`, `injectable`, `auto_route`, and `retrofit` are **STRICTLY FORBIDDEN**. Write explicit, zero-reflection Dart 3.13 classes, sealed states, and `fromJson`/`toJson` mappers.
 - **NO 6th Bottom Navigation Tab**: The bottom navigation bar is strictly locked to 5 tabs (`Stats`, `Map & Activity`, `Home`, `Shop`, `Profile & Settings`). The Recycling Map is accessed via the top mode toggle `[ My Routes ] | [ Recycling Map ]` on Tab 2 and via the shortcut card inside Tab 5 (`Profile & Settings`).
 - **NO Arbitrary Manual Activity Entry**: Users cannot manually type "I walked 5 km" or "I rode a bus" without sensor steps. Step counts come exclusively from hardware sensors (`health` + `pedometer`), and transport replacement is annotated on recorded GPS segments (or calculated via the default 80% * 0.7 fallback formula).
@@ -123,9 +130,10 @@ Every developer and AI agent must enforce these hard bans. Any PR violating a si
 No task is complete until `make verify` exits with code `0`. The verification pipeline executes four mandatory layers in order:
 
 1. **Layer 1 — Static, Contract & Architecture Gate (`make verify-static`)**:
-   - `python scripts/verify_contracts.py` (verifies 100% alignment across `schema.sql`, `client_sqlite_schema.sql`, `openapi.yaml`, and `error_catalog.json`).
+   - `uv run --with pyyaml python scripts/verify_contracts.py` (verifies 100% alignment across `schema.sql`, `client_sqlite_schema.sql`, `openapi.yaml`, and `error_catalog.json`).
+   - `uv run --with pyyaml python scripts/verify_mobile_gates.py` (verifies the 14 locked `/screens/*.png` files, `pubspec.yaml` bans/SDK floors, `analysis_options.yaml` anti-weakening guards, canonical 3-module paths, Dart static bans, layer import boundaries, OpenAPI/error catalog parity, Android permissions, and anti-tautology test rules).
    - Backend: `ruff check`, `ruff format --check`, `basedpyright --level error`, `semgrep --config auto --error`.
-   - Mobile: `dart format --output=none --set-exit-if-changed .`, `flutter analyze --fatal-infos --fatal-warnings`, `dart run dart_code_linter:metrics analyze lib`, `dart run import_lint`.
+   - Mobile: `dart format --output=none --set-exit-if-changed lib test`, `flutter analyze --fatal-infos --fatal-warnings`, `dart analyze --fatal-infos --fatal-warnings` (runs `dart_code_linter` and `import_lint ^2.0.0` analyzer plugins), `dart run import_lint`.
 2. **Layer 2 — Formal Design-by-Contract & Symbolic Gate (`make verify-dbc`)**:
    - Backend domain math (Hybrid CO₂, vehicle emissions, motion classification, antifraud, RSO trust score) decorated with `@icontract.require` and `@icontract.ensure`, verified symbolically via `crosshair check` (Z3 solver) with zero counterexamples.
    - PostgreSQL 17 DDL constraints and immutability triggers (`trg_point_ledger_immutable`, `trg_point_ledger_sync_balance`, `trg_point_reports_apply_trust`) verified against constraint-violation test vectors.

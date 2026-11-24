@@ -59,6 +59,7 @@ dev_dependencies:
 
   # Strict Linters & Analyzers
   dart_code_linter: ^4.4.1
+  import_lint: ^2.0.0
   lint: ^2.3.0
   sqflite_common_ffi: ^2.4.7
 

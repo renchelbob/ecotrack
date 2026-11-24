@@ -241,19 +241,22 @@ rules:
 ```
 
 ### 2.3 Mobile Static Analysis & Architecture Boundary Gate
-Executed from `/mobile/`:
-1. `dart format --output=none --set-exit-if-changed lib test`
-2. `flutter analyze --fatal-infos --fatal-warnings`
-3. `dart run dart_code_linter:metrics analyze lib --fatal-style --fatal-performance --fatal-warnings`:
-   - `cyclomatic-complexity: 12`
-   - `maximum-nesting-level: 4`
-   - `number-of-parameters: 5`
-   - `avoid-dynamic: true`
-   - `avoid-non-null-assertion: true`
-   - `always-remove-listener: true`
-   - `cancel-subscriptions: true`
-   - `dispose-fields: true`
-4. `dart run import_lint` (enforcing `presentation_layer_isolation` and `domain_layer_purity` defined in `specs/05-mobile-flutter-architecture.md` Section 2.3).
+1. Executed unconditionally from repository root on every PR and push (`Makefile` `verify-static` & `.github/workflows/ci.yml` `code-quality-gates`):
+   `uv run --with pyyaml python scripts/verify_mobile_gates.py`
+   Enforces 8 deterministic verification gates (exiting `0` with `[SKIP]` on Gates 5–8 when `mobile/lib/` and `mobile/test/` contain no `.dart` source yet, and exiting `1` on any defect):
+   - **Gate 1 — Visual Reference Canon (`screens/`)**: verifies all 14 canonical PNG wireframes exist and are non-empty under `screens/`.
+   - **Gate 2 — `mobile/pubspec.yaml` Integrity & Package Bans**: enforces `environment.sdk >= 3.13.4`, bans codegen/DI/mock/legacy-map packages (`build_runner`, `freezed`, `riverpod`, `get_it`, `hive`, `drift`, `mockito`, `mocktail`, etc.), requires `glados`, `dart_code_linter`, `import_lint`, and `sqflite_common_ffi`, enforces runtime floor versions (`go_router >= 15.0.0`, `dio >= 5.8.0`, `flutter_bloc >= 9.1.0`, `flutter_map >= 8.2.0`, `geolocator >= 14.0.0`, `health >= 12.1.0`, `flutter_foreground_task >= 9.0.0`), and checks required schema/error assets.
+   - **Gate 3 — `mobile/analysis_options.yaml` Anti-Weakening Guard**: requires top-level `plugins` (`dart_code_linter` and `import_lint`), `strict-casts`/`strict-inference`/`strict-raw-types: true`, `deprecated_member_use: error` and `deprecated_member_use_from_same_package: error` (forbidding `ignore` on critical diagnostics including `todo`), `use_primary_constructors`, `use_declaring_parameters`, `avoid_dynamic_calls`, `unawaited_futures`, and a non-empty `import_lint.rules` mapping.
+   - **Gate 4 — Platform Runner Bloat & Canonical 3-Module Paths**: forbids `mobile/macos`, `mobile/windows`, `mobile/linux`, `mobile/web` runners and checks canonical paths for `mascot_vector_painter.dart`, `map_activity_screen.dart`, and `outbox_dispatcher.dart`.
+   - **Gate 5 — Dart Static Bans, Anti-Suppression & Import Boundaries**: bans `// ignore:` suppressions on critical lints, `\bdynamic\b`, postfix `!` null-assertions, `showSnackBar(`, empty `catch` blocks, `deleteDatabase(`, dark theme APIs (`Brightness.dark`, `ThemeData.dark(`) in theme/app setup, `double` fields for integer CO₂/points totals, and enforces `presentation`/`domain` layer isolation plus cross-feature imports restricted to `features/<other>/domain/`.
+   - **Gate 6 — OpenAPI, Error Catalog, SQLite & Anti-Stub Contract Parity**: validates all `/api/v1/...` literals against the 38 paths in `contracts/openapi.yaml` (banning `/v1/...` without `/api`), requires `API_BASE_URL` env reading, `'error_code'` parsing, and HTTP `get`/`post`/`put`/`patch`/`delete` in `core/network/`, validates `AppError.fromCode(...)` and `clientAction:` against `contracts/error_catalog.json`, bans inline `CREATE TABLE` DDL and legacy outbox literals, and blocks auth/push stub markers (`sample-google-oauth-code`, `mock-device-token`, `register_screen.dart`).
+   - **Gate 7 — Android Manifest & 152-FZ Permission Gate**: bans `ACCESS_BACKGROUND_LOCATION` and requires `android.permission.health.READ_STEPS`, `android.permission.ACTIVITY_RECOGNITION`, `android.permission.FOREGROUND_SERVICE_LOCATION`, and `android:scheme="ecotrack"`.
+   - **Gate 8 — Anti-Tautology Test Quality Gate**: verifies every `mobile/test/pbt/*_pbt_test.dart` imports `package:glados/glados.dart`, runs `Glados`, and imports `package:ecotrack_mobile/`, requires `outbox_fsm_pbt_test.dart` and `app_router.dart` coverage, and bans `mockito`/`mocktail`.
+2. Executed from `/mobile/` when `.dart` sources exist:
+   - `dart format --output=none --set-exit-if-changed lib test`
+   - `flutter analyze --fatal-infos --fatal-warnings`
+   - `dart analyze --fatal-infos --fatal-warnings` (executes Dart 3.13 `analysis_server_plugin` diagnostics for `dart_code_linter ^4.4.1` — `avoid-dynamic`, `avoid-non-null-assertion`, `always-remove-listener`, `no-empty-block` — and `import_lint ^2.0.0`)
+   - `dart run import_lint` (enforcing `import_lint ^2.0.0` `target` / `from` / `except` rules for `features/*/presentation/**` and `features/*/domain/**` with `severity: error`).
 
 ---
 

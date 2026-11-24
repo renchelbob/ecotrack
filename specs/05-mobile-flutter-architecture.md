@@ -84,8 +84,8 @@ dev_dependencies:
   sqflite_common_ffi: ^2.3.5
   glados: ^1.1.7
   bloc_test: ^10.0.0
-  dart_code_linter: ^2.0.0
-  import_lint: ^0.2.0
+  dart_code_linter: ^4.4.1
+  import_lint: ^2.0.0
 
 flutter:
   uses-material-design: true
@@ -122,7 +122,7 @@ mobile/lib/
 │   │   └── eco_error_banner_presenter.dart        # Deterministic UI presenter per client_action
 │   ├── database/
 │   │   ├── sqlite_database.dart                   # WAL mode sqflite/sqlite3 manager
-│   │   └── outbox_dispatcher.dart                 # Offline mutation outbox worker (UUIDv7)
+│   │   └── outbox_dispatcher.dart                 # (Authored by Developer 1) Offline mutation outbox worker (UUIDv7)
 │   ├── network/
 │   │   ├── dio_client.dart                        # Configured Dio ^5.x wrapper
 │   │   ├── auth_header_interceptor.dart           # Injects Bearer access token
@@ -149,20 +149,22 @@ mobile/lib/
     ├── auth/
     │   ├── domain/                                # AuthSession, ConsentEntry, OAuthProviderType, AuthRepository
     │   ├── data/                                  # OAuthPkceClient, SecureTokenStore, AuthRepositoryImpl
-    │   └── presentation/                          # AuthBloc, OnboardingScreen, LoginScreen, GoogleLabBanner,
-    │                                              # GoogleFormalPhoneModal, Fz152ConsentResolutionModal
-    ├── home/
+    │   └── presentation/                          # AuthBloc, OnboardingScreen (in-place Step 3 OAuth),
+    │                                              # GoogleLabModeBanner, GoogleFormalPhoneModal, Fz152ConsentResolutionModal
+    ├── home_mascot/
     │   ├── domain/                                # MascotVisualState, MascotMoodState, TodayCardMetrics
     │   ├── data/                                  # HomeSummaryAggregator
-    │   └── presentation/                          # HomeCubit, HomeScreen, FoxMascotWidget,
-    │                                              # MascotVectorPainter,MascotAccessoryLayerPainter
+    │   └── presentation/                          # HomeCubit, HomeScreen, FoxMascotWidget, MascotAccessoryLayerPainter
+    │       └── widgets/
+    │           └── mascot_vector_painter.dart     # (Authored by Developer 1) Fox mascot Canvas geometry & accessories
     ├── map_activity/
     │   ├── domain/                                # DailyActivityDetail, GpsTrackPointClassified,
     │   │                                          # RouteSegmentAllocationItem, WastePointMapItem, MapRepository
     │   ├── data/                                  # ActivitySqliteDao, WastePointSqliteDao, MapRepositoryImpl
-    │   └── presentation/                          # MapActivityBloc, MapActivityScreen, RoutePolylineOverlay,
-    │                                              # TransportAllocationBottomSheet, WastePointDetailSheet,
-    │                                              # SuggestWastePointModal
+    │   └── presentation/                          # MapActivityBloc, RoutePolylineOverlay, TransportAllocationBottomSheet,
+    │       │                                      # WastePointDetailSheet, SuggestWastePointModal
+    │       └── screens/
+    │           └── map_activity_screen.dart         # (Authored by Developer 1) Dual-mode FlutterMap + LayerHitNotifier
     ├── stats/
     │   ├── domain/                                # EmissionsStatistics, EcoEquivalentsMetrics,
     │   │                                          # SharedForestChallenge, LeaderboardEntry, StatsRepository
@@ -191,6 +193,8 @@ mobile/lib/
         └── presentation/                          # ProfileSettingsCubit, SyncStatusCubit, ProfileSettingsScreen,
                                                    # BadgesAndAccessoriesScreen, Fz152DeleteAccountModal
 ```
+
+> **Developer 1 Delegated Module Canonical Paths**: `mobile/lib/features/home_mascot/presentation/widgets/mascot_vector_painter.dart`, `mobile/lib/core/database/outbox_dispatcher.dart`, and `mobile/lib/features/map_activity/presentation/screens/map_activity_screen.dart`.
 
 ### 2.2 Manual Dependency Injection Composition Root (`AppDependencies`)
 Zero service-locator singletons (`get_it`) are permitted. `AppDependencies` constructs all infrastructure adapters, SQLite DAOs, and repositories once during `main()` bootstrap and injects them into the widget tree via `MultiRepositoryProvider` and `MultiBlocProvider`:
@@ -230,6 +234,19 @@ final class AppDependencies(
 ### 2.3 Static Import Boundary Configuration (`mobile/analysis_options.yaml`)
 
 ```yaml
+plugins:
+  dart_code_linter:
+    version: ^4.4.1
+    diagnostics:
+      always-remove-listener: error
+      avoid-dynamic: error
+      avoid-non-null-assertion: error
+      no-empty-block: error
+  import_lint:
+    version: ^2.0.0
+    diagnostics:
+      import_lint: error
+
 analyzer:
   language:
     strict-casts: true
@@ -238,39 +255,93 @@ analyzer:
   errors:
     missing_required_param: error
     missing_return: error
-    todo: error
     deprecated_member_use: error
-  plugins:
-    - dart_code_linter
-    - import_lint
+    deprecated_member_use_from_same_package: error
+    todo: error
 
 import_lint:
+  severity: error
   rules:
-    presentation_layer_isolation:
-      target_file_path: "lib/features/*/presentation/**"
-      not_allow_imports:
-        - "package:dio/**"
-        - "package:sqflite/**"
-        - "package:sqlite3/**"
-        - "package:geolocator/**"
-        - "package:health/**"
-        - "package:pedometer/**"
-        - "package:firebase_messaging/**"
-        - "package:flutter_secure_storage/**"
-        - "lib/core/network/**"
-        - "lib/core/database/**"
-        - "lib/features/*/data/**"
-    domain_layer_purity:
-      target_file_path: "lib/features/*/domain/**"
-      not_allow_imports:
-        - "package:flutter/**"
-        - "package:dio/**"
-        - "package:sqflite/**"
-        - "package:sqlite3/**"
-        - "lib/core/network/**"
-        - "lib/core/database/**"
-        - "lib/features/*/data/**"
-        - "lib/features/*/presentation/**"
+    presentation_no_dio:
+      target: "package:ecotrack_mobile/features/*/presentation/**/*.dart"
+      from: "package:dio/**/*.dart"
+      except: []
+    presentation_no_sqflite:
+      target: "package:ecotrack_mobile/features/*/presentation/**/*.dart"
+      from: "package:sqflite/**/*.dart"
+      except: []
+    presentation_no_sqlite3:
+      target: "package:ecotrack_mobile/features/*/presentation/**/*.dart"
+      from: "package:sqlite3/**/*.dart"
+      except: []
+    presentation_no_geolocator:
+      target: "package:ecotrack_mobile/features/*/presentation/**/*.dart"
+      from: "package:geolocator/**/*.dart"
+      except: []
+    presentation_no_health:
+      target: "package:ecotrack_mobile/features/*/presentation/**/*.dart"
+      from: "package:health/**/*.dart"
+      except: []
+    presentation_no_pedometer:
+      target: "package:ecotrack_mobile/features/*/presentation/**/*.dart"
+      from: "package:pedometer/**/*.dart"
+      except: []
+    presentation_no_firebase_messaging:
+      target: "package:ecotrack_mobile/features/*/presentation/**/*.dart"
+      from: "package:firebase_messaging/**/*.dart"
+      except: []
+    presentation_no_secure_storage:
+      target: "package:ecotrack_mobile/features/*/presentation/**/*.dart"
+      from: "package:flutter_secure_storage/**/*.dart"
+      except: []
+    presentation_no_core_network:
+      target: "package:ecotrack_mobile/features/*/presentation/**/*.dart"
+      from: "package:ecotrack_mobile/core/network/**/*.dart"
+      except: []
+    presentation_no_core_database:
+      target: "package:ecotrack_mobile/features/*/presentation/**/*.dart"
+      from: "package:ecotrack_mobile/core/database/**/*.dart"
+      except: []
+    presentation_no_core_sensors:
+      target: "package:ecotrack_mobile/features/*/presentation/**/*.dart"
+      from: "package:ecotrack_mobile/core/sensors/**/*.dart"
+      except: []
+    presentation_no_feature_data:
+      target: "package:ecotrack_mobile/features/*/presentation/**/*.dart"
+      from: "package:ecotrack_mobile/features/*/data/**/*.dart"
+      except: []
+    domain_no_flutter:
+      target: "package:ecotrack_mobile/features/*/domain/**/*.dart"
+      from: "package:flutter/**/*.dart"
+      except: []
+    domain_no_dio:
+      target: "package:ecotrack_mobile/features/*/domain/**/*.dart"
+      from: "package:dio/**/*.dart"
+      except: []
+    domain_no_sqflite:
+      target: "package:ecotrack_mobile/features/*/domain/**/*.dart"
+      from: "package:sqflite/**/*.dart"
+      except: []
+    domain_no_sqlite3:
+      target: "package:ecotrack_mobile/features/*/domain/**/*.dart"
+      from: "package:sqlite3/**/*.dart"
+      except: []
+    domain_no_core_network:
+      target: "package:ecotrack_mobile/features/*/domain/**/*.dart"
+      from: "package:ecotrack_mobile/core/network/**/*.dart"
+      except: []
+    domain_no_core_database:
+      target: "package:ecotrack_mobile/features/*/domain/**/*.dart"
+      from: "package:ecotrack_mobile/core/database/**/*.dart"
+      except: []
+    domain_no_feature_data:
+      target: "package:ecotrack_mobile/features/*/domain/**/*.dart"
+      from: "package:ecotrack_mobile/features/*/data/**/*.dart"
+      except: []
+    domain_no_feature_presentation:
+      target: "package:ecotrack_mobile/features/*/domain/**/*.dart"
+      from: "package:ecotrack_mobile/features/*/presentation/**/*.dart"
+      except: []
 ```
 
 ---
@@ -325,11 +396,18 @@ final class AppRouter {
     routes: <RouteBase>[
       GoRoute(
         path: '/onboarding',
-        builder: (context, state) => const OnboardingScreen(),
+        builder: (context, state) {
+          final stepParam = int.tryParse(state.uri.queryParameters['step'] ?? '');
+          final initialStep = switch (stepParam) {
+            final int step when step >= 1 && step <= 3 => step,
+            _ => 1,
+          };
+          return OnboardingScreen(initialStep: initialStep);
+        },
       ),
       GoRoute(
         path: '/auth/login',
-        builder: (context, state) => const LoginScreen(),
+        redirect: (context, state) => '/onboarding?step=3',
       ),
       GoRoute(
         path: '/auth/google-phone',
@@ -470,7 +548,7 @@ final class AppRouter {
       case AuthOnboardingRequired():
         return path == '/onboarding' ? null : '/onboarding';
       case AuthUnauthenticated() || AuthError():
-        return (path == '/auth/login' || path == '/onboarding') ? null : '/auth/login';
+        return path == '/onboarding' ? null : '/onboarding?step=3';
       case AuthGooglePhoneRequired():
         return path == '/auth/google-phone' ? null : '/auth/google-phone';
       case AuthConsentResolutionRequired():
