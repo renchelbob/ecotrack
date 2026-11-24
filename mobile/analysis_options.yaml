@@ -1,9 +1,5 @@
 include: package:lint/strict.yaml
 
-# Новый протокол плагинов анализатора Dart 3.10–3.13 (analysis_server_plugin)
-plugins:
-  dart_code_linter: ^4.4.1
-
 analyzer:
   language:
     strict-casts: true
@@ -43,16 +39,7 @@ linter:
     use_decorated_box: true
     use_key_in_widget_constructors: true
 
-    async_return_with_no_await: true
-    empty_container_bodies: true
-    initialize_in_field_declaration: true
     prefer_initializing_formals: true
-    simple_directive_paths: true
-    unnecessary_const_in_enum_constructor: true
-    unnecessary_primary_constructor_body: true
-    unnecessary_type_name_in_constructor: true
-    use_declaring_parameters: true
-    use_primary_constructors: true
 
 dart_code_linter:
   anti-patterns:
