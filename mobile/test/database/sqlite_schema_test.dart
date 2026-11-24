@@ -76,9 +76,10 @@ void main() {
       );
 
       // 2. Transition to in_flight
+      const inFlightStatus = <String, Object?>{'status': 'in_flight'};
       await db.update(
         'offline_mutation_outbox',
-        {'status': 'in_flight'},
+        inFlightStatus,
         where: "idempotency_key = '01935c10-0000-7000-8000-000000000001'",
       );
 
