@@ -182,7 +182,6 @@ jobs:
         working-directory: mobile
         env:
           NO_PROXY: 127.0.0.1,localhost
-          no_proxy: 127.0.0.1,localhost
         run: |
           flutter pub get
           dart format --output=none --set-exit-if-changed lib test
