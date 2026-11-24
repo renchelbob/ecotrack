@@ -229,8 +229,9 @@ class MascotVectorPainter extends CustomPainter {
         final rightEye = Path()
           ..moveTo(12, -25)
           ..quadraticBezierTo(20, -18, 28, -25);
-        canvas.drawPath(leftEye, strokePaint);
-        canvas.drawPath(rightEye, strokePaint);
+        canvas
+          ..drawPath(leftEye, strokePaint)
+          ..drawPath(rightEye, strokePaint);
 
       case MascotMood.squinting:
         // One winking eye, one curved squint (> <)
@@ -247,25 +248,28 @@ class MascotVectorPainter extends CustomPainter {
           ..moveTo(28, -24)
           ..lineTo(18, -20)
           ..lineTo(28, -16);
-        canvas.drawPath(leftEye, strokePaint);
-        canvas.drawPath(rightEye, strokePaint);
+        canvas
+          ..drawPath(leftEye, strokePaint)
+          ..drawPath(rightEye, strokePaint);
 
       case MascotMood.thriving:
         // Sparkly joyful round eyes
-        canvas.drawCircle(const Offset(-20, -22), 8, eyePaint);
-        canvas.drawCircle(const Offset(20, -22), 8, eyePaint);
-        // Double highlights
-        canvas.drawCircle(const Offset(-18, -25), 3, shinePaint);
-        canvas.drawCircle(const Offset(-22, -20), 1.5, shinePaint);
-        canvas.drawCircle(const Offset(22, -25), 3, shinePaint);
-        canvas.drawCircle(const Offset(18, -20), 1.5, shinePaint);
+        canvas
+          ..drawCircle(const Offset(-20, -22), 8, eyePaint)
+          ..drawCircle(const Offset(20, -22), 8, eyePaint)
+          // Double highlights
+          ..drawCircle(const Offset(-18, -25), 3, shinePaint)
+          ..drawCircle(const Offset(-22, -20), 1.5, shinePaint)
+          ..drawCircle(const Offset(22, -25), 3, shinePaint)
+          ..drawCircle(const Offset(18, -20), 1.5, shinePaint);
 
       case MascotMood.happy:
         // Standard friendly alert eyes
-        canvas.drawOval(const Rect.fromLTWH(-25, -28, 10, 14), eyePaint);
-        canvas.drawOval(const Rect.fromLTWH(15, -28, 10, 14), eyePaint);
-        canvas.drawCircle(const Offset(-22, -24), 2.5, shinePaint);
-        canvas.drawCircle(const Offset(18, -24), 2.5, shinePaint);
+        canvas
+          ..drawOval(const Rect.fromLTWH(-25, -28, 10, 14), eyePaint)
+          ..drawOval(const Rect.fromLTWH(15, -28, 10, 14), eyePaint)
+          ..drawCircle(const Offset(-22, -24), 2.5, shinePaint)
+          ..drawCircle(const Offset(18, -24), 2.5, shinePaint);
     }
   }
 

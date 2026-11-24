@@ -22,6 +22,8 @@ analyzer:
     missing_return: error
     unused_local_variable: warning
     unused_field: warning
+    deprecated_member_use: ignore
+    deprecated_member_use_from_same_package: ignore
 
 linter:
   rules:
