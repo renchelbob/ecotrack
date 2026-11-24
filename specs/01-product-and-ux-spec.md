@@ -8,6 +8,28 @@
 
 ## 1. Design System & Visual Tokens
 
+### 1.0 Visual Reference Canon (`/screens/`)
+The `/screens/` directory is the **Locked Visual Reference Canon (Single Source of Visual Truth)** for all Flutter UI screens, card geometry, spacing, grayscale wireframe tokens, line-art fox mascot styling, and 5-tab bottom navigation bar. Every mobile developer and AI agent MUST inspect the matching PNG(s) below before writing any UI code:
+
+| Reference PNG (`/screens/`) | Target Route / Scope | Notes & Allowed Product Deltas |
+| :--- | :--- | :--- |
+| `screens/wireframes.png` | Overall navigation & Architectural Wireframe Grayscale system | Master 24-frame panorama (`#01..#23`) |
+| `screens/07_Onboarding_Compact_01_Приветствие.png` | `/onboarding` Step 1 | Welcome screen, line-art fox mascot, 3 slogans, `"Далее"` / `"Продолжить >"` |
+| `screens/08_Onboarding_Compact_07_Препермишен_шагомера.png` | `/onboarding` Step 2 | Hardware step sensor pre-permission & optional GPS toggle |
+| `screens/09_Onboarding_Compact_08_Подарки_и_152ФЗ.png` | `/onboarding` Step 3 + **In-Place OAuth 2.1 + PKCE Sign-In/Sign-Up** | 3 OAuth buttons replace `"Начать >"` directly in-place; 152-FZ checkbox MUST default unchecked (`false`); render clean Russian (`"зверёк"`, `"партнёров"`, fixing Figma typos `"зверек"`, `"партеров"`) |
+| `screens/14_Main_Compact_16_Главная_Маскот_ФИНАЛ.png` | `/home` (Tab 3) | Top balance/avatar, line-art fox mascot, 2 collapsible Today cards, central `+` button |
+| `screens/15_Calc_Compact_17_Калькулятор_поездок_ФИНАЛ.png` | `/map?mode=routes` (Tab 2 Route/CO₂ Calculator & Transport Annotation) | Top dual-mode toggle (`[ Мои маршруты ] \| [ Пункты РСО ]`), transport chips & segment controls |
+| `screens/16_Stats_Compact_05_Статистика_обзор_ФИНАЛ.png` | `/stats` (Tab 1 Overview) | 7-day chart, Activity History preview, 3 Eco-Equivalents Bento cards (exact server values + 3 soft color exceptions) |
+| `screens/17_Stats_Compact_26_График_выбросов_и_доли_ФИНАЛ.png` | `/stats/emissions` | `[ Дни \| Недели \| Месяцы ]` bar chart + average line + transport donut |
+| `screens/18_Stats_Compact_24_История_активности_список_ФИНАЛ.png` | `/stats/history` | Paginated activity list with edit tap on Today/Yesterday |
+| `screens/19_Profile_Compact_18_Профиль_и_настройки_152ФЗ_ФИНАЛ.png` | `/profile` (Tab 5 + 152-FZ Settings) | Profile card, 4-icon badges/wardrobe strip, Friends/Vehicle/RSO cards, 152-FZ consent & erasure controls |
+| `screens/20_Shop_Compact_19_Витрина_промокодов_ФИНАЛ.png` | `/shop` (Tab 4 Catalog) | Balance, search, QR/Promo quick cards, filter chips, fictional partner disclaimer & coupons |
+| `screens/21_Shop_Compact_20_Корзина_заказов_ФИНАЛ.png` | `/shop/cart` | Line items, balance/quantity/total summary, checkout CTA |
+| `screens/22_Shop_Compact_21_Заказы_QR_коды_ФИНАЛ.png` | `/shop/orders/qr` | QR coupon cards (`Активен` / `Использован`), QR modal |
+| `screens/23_Shop_Compact_22_Заказы_буквенный_промокод_ФИНАЛ.png` | `/shop/orders/promo` | Monospace promo code cards + copy action |
+
+> **Typo & Legal Hygiene Override**: Figma wireframe copy on `screens/09_Onboarding_Compact_08_Подарки_и_152ФЗ.png` contains minor typos (`"партеров"`, `"зверек"`). Production Flutter UI MUST render clean Russian (`"партнёров"`, `"зверёк"`), and the 152-FZ consent checkbox MUST default to unchecked (`false`) despite being checked in the static Figma mockup.
+
 ### 1.1 Wireframe Grayscale Palette & Allowed Color Exceptions
 EcoTrack uses a high-contrast **Architectural Wireframe Grayscale** visual system throughout the entire app, with strictly scoped semantic color exceptions on the Statistics Eco-Equivalents cards and the Weekly Leaderboard #1 badge.
 
@@ -54,7 +76,7 @@ Raw `SnackBar` calls with ad-hoc text are **STRICTLY FORBIDDEN**. Every error re
 | :--- | :--- |
 | `none` | Silent log only; no UI interruption. |
 | `refresh_token` | Handled transparently by `AuthRefreshInterceptor` (single-flight lock on `/api/v1/auth/refresh`). |
-| `force_logout` | Clears secure storage tokens, resets SQLite user session, navigates to `/auth/login` and shows top banner with `ui_message_ru`. |
+| `force_logout` | Clears secure storage tokens, resets SQLite user session, navigates to `/onboarding?step=3` (`/auth/login` redirects to `/onboarding?step=3`) and shows top banner with `ui_message_ru`. |
 | `show_inline` | Renders `ui_message_ru` directly beneath the offending form input or segment selector in `12 sp` bold `#1E1E1E` with a warning icon. |
 | `show_banner` | Displays a single top non-stacking floating wireframe banner (`EcoTopBanner`) with `ui_message_ru` for `4000 ms` (replaces any existing banner). |
 | `queue_retry` | Enqueues payload into SQLite `offline_mutation_outbox` and shows subtle top pill: `"Сохранено офлайн · Синхронизируем при появлении сети"`. |
@@ -81,22 +103,26 @@ Shown on first launch when no active session exists. Contains a top-right `"Пр
      - Card 1: `"Доступ к датчику шагов (обязательно для начисления ★)"` — button `"Запросить доступ"`.
      - Card 2: `"Фоновая запись маршрута GPS (опционально)"` — switch default `OFF`, caption `"Если GPS выключен, приложение автоматически считает эковклад по базовой формуле (80% × 0.7)."`.
    - **Primary Button**: `"Далее"`
-3. **Step 3 — Mascot `%` Gift & Mandatory 152-FZ Consent**:
-   - **Illustration**: `FoxMascotWidget` holding a schematic wireframe gift box labeled `"%"` and `"+100 ★ за старт"`.
-   - **Title**: `"Ваш зверёк и бонусы за эко-привычки"`
-   - **Body**: `"Выполняйте дневную цель по CO₂, чтобы радовать зверька, открывайте для него аксессуары, соревнуйтесь с друзьями и обменивайте баллы в демо-магазине."`
-   - **Mandatory 152-FZ Checkbox (`48x48 dp` tap area)**:
+3. **Step 3 — Mascot `%` Gift, Mandatory 152-FZ Consent & In-Place OAuth (`screens/09_Onboarding_Compact_08_Подарки_и_152ФЗ.png`)**:
+   - **Illustration**: `FoxMascotWidget` holding a schematic wireframe gift box labeled `"%"` inside the circular wireframe container (`"+100 ★ за старт"`).
+   - **Title**: `"Забота о природе приносит пользу и подарки"`
+   - **Body (clean Russian, correcting Figma wireframe typos `"зверек"` / `"партеров"`)**:
+     - Card 1: `"Виртуальный зверёк растёт и развивается вместе с вашими успехами"`
+     - Card 2: `"Обменивайте накопленные баллы на скидки и промокоды от наших партнёров"`
+   - **Mandatory 152-FZ Checkbox (`48x48 dp` tap area, MUST default to unchecked `false`)**:
      - Label: `"Я принимаю Политику конфиденциальности и даю согласие на обработку персональных данных (включая показатели активности и геопозицию) согласно 152-ФЗ РФ."`
      - Secondary link beneath checkbox: `"Читать полный текст согласия 152-ФЗ"` (opens modal sheet with full policy version `"1.0.0-2026"`).
-   - **Primary Button**: `"Перейти ко входу"` (disabled `#C4C4C4` until checkbox is checked).
+   - **In-Place OAuth CTA Replacement**: Directly on `screens/09_Onboarding_Compact_08_Подарки_и_152ФЗ.png`, the bottom wireframe CTA `"Начать >"` is **replaced in-place** by the vertical stack of 3 OAuth 2.1 + PKCE sign-in / registration buttons (`"Войти через Яндекс ID"`, `"Войти через VK ID"`, `"Войти через Google (Лаб. режим)"`). All 3 OAuth buttons stay disabled (`#C4C4C4`) until the mandatory 152-FZ consent checkbox is checked (`true`).
 
-### 2.2 OAuth 2.1 + PKCE Login Screen (`/auth/login`)
-- **Header**: `"Вход в EcoTrack"`
-- **Subtitle**: `"Быстрая авторизация через защищённый протокол OAuth 2.1 + PKCE"`
-- **Provider Buttons (vertical stack, `56 dp` height each, full width)**:
-  1. **Яндекс ID**: `"Войти через Яндекс ID"` (Primary `#1E1E1E` fill, `#FFFFFF` text)
-  2. **VK ID**: `"Войти через VK ID"` (`#FFFFFF` fill, `1.5 dp` `#1E1E1E` border, `#1E1E1E` text)
-  3. **Google**: `"Войти через Google (Лаб. режим)"` (`#ECECEC` fill, `1.5 dp` `#B0B0B0` border, `#1E1E1E` text)
+### 2.2 In-Place OAuth 2.1 + PKCE Sign-In & Registration (`/onboarding?step=3`)
+There is **NO separate email/password login or registration screen** and **NO separate `/auth/login` UI screen** — OAuth 2.1 + PKCE handles both new-user sign-up and returning-user sign-in via `POST /api/v1/auth/oauth/exchange`. Returning signed-out users navigate straight to `/onboarding?step=3` (`/auth/login` aliases and redirects to `/onboarding?step=3`).
+
+- **Placement**: Rendered directly in the bottom CTA slot of Step 3 (`screens/09_Onboarding_Compact_08_Подарки_и_152ФЗ.png`), replacing `"Начать >"`.
+- **Gate**: All 3 provider buttons remain disabled (`#C4C4C4` fill, muted text) until the mandatory 152-FZ consent checkbox (`default: false`) is checked.
+- **Provider Buttons (vertical stack, `56 dp` height each, full width, wireframe grayscale tokens)**:
+  1. **Яндекс ID**: `"Войти через Яндекс ID"` (Primary `#1E1E1E` fill, `#FFFFFF` text when enabled; `#C4C4C4` fill when disabled)
+  2. **VK ID**: `"Войти через VK ID"` (`#FFFFFF` fill, `1.5 dp` `#1E1E1E` border, `#1E1E1E` text when enabled; `#C4C4C4` fill / muted border when disabled)
+  3. **Google**: `"Войти через Google (Лаб. режим)"` (`#ECECEC` fill, `1.5 dp` `#B0B0B0` border, `#1E1E1E` text when enabled; `#C4C4C4` fill / muted border when disabled)
 
 ### 2.3 Google OAuth 406-FZ Academic/Lab Warning Banner & Formal Phone Modal
 When the user selects **Google** (`provider = "google"`):
@@ -376,7 +402,7 @@ Every screen and modal MUST implement all 5 deterministic states below:
 
 | Screen / Modal | Loading State | Empty State | Error State (`error_catalog.json`) | Offline State (SQLite WAL + Outbox) | Populated State |
 | :--- | :--- | :--- | :--- | :--- | :--- |
-| **Onboarding & OAuth Login** | Wireframe spinner inside active OAuth button; other buttons disabled | N/A (static onboarding content always present) | Top `EcoTopBanner` with `OAUTH_CODE_EXCHANGE_FAILED` or `OAUTH_PKCE_VERIFICATION_FAILED` copy | Banner `"Нет подключения к сети. Для первого входа требуется интернет."` | 3 OAuth buttons + 152-FZ consent gate + Google lab mode banner/phone modal |
+| **Onboarding & In-Place OAuth (`/onboarding?step=3`)** | Wireframe spinner inside active OAuth button; other buttons disabled | N/A (static onboarding content always present) | Top `EcoTopBanner` with `OAUTH_CODE_EXCHANGE_FAILED` or `OAUTH_PKCE_VERIFICATION_FAILED` copy | Banner `"Нет подключения к сети. Для первого входа требуется интернет."` | 3 OAuth buttons replacing `"Начать >"` + 152-FZ consent gate + Google lab mode banner/phone modal |
 | **Tab 3: Home Screen** | Skeleton wireframe placeholders for balance, streak, and 2 Today cards; mascot in idle breathing | `"Сегодня шагов пока нет"` dashed card when `validated_steps == 0`; mascot in `sleepy` state | Top banner with `ui_message_ru`; retains last known SQLite profile & step summary | Renders `local_user_profile` + `local_daily_step_summaries`; shows `"Сохранено офлайн"` pill | Live points, streak, interactive `FoxMascotWidget` with mood/accessory, 2 expandable Today cards |
 | **Tab 2: Map (`Мои маршруты`)** | Map tiles + top shimmer bar `"Загрузка маршрута за день..."` | If GPS off: `"Геолокация маршрутов выключена"` card; if 0 GPS points: `"Маршрут за день ещё не записан"` | Inline or top banner (`EDIT_WINDOW_EXPIRED`, `SEGMENT_OVERLAP_CONFLICT`, `SEGMENT_CONTAINS_VEHICLE_MOTION`) | Renders cached tiles (`flutter_map_cache`) + `local_gps_track_points` + `local_route_segment_allocations`; queues saves in outbox | Polylines colored by motion class, interactive segment handles, `TransportAllocationBottomSheet` |
 | **Tab 2: Map (`Пункты РСО`)** | Non-blocking top progress pill `"Загрузка пунктов РСО..."` over map | Floating pill `"В этой области карты пункты РСО не найдены"` with button `"Сбросить фильтры"` | Top banner (`BBOX_AREA_TOO_LARGE_FOR_ZOOM`, `REPORT_USER_TOO_FAR_FROM_POINT`) | Queries `cached_waste_points` by lat/lon bounds; queues new reports in `pending_waste_point_reports` | Clustered monochrome pins, fraction chips, ODbL attribution bar, `WastePointDetailSheet` |

@@ -48,13 +48,14 @@ ecotrack/
 │   ├── lib/                            # Feature-first архитектура приложения на Flutter
 │   └── test/                           # Тесты (glados PBT, outbox FSM)
 │
-├── screens/                            # ЭТАЛОННЫЕ ЭКРАНЫ И ВАЙРФРЕЙМЫ ИЗ FIGMA
+├── screens/                            # ЭТАЛОННЫЕ ЭКРАНЫ И ВАЙРФРЕЙМЫ (LOCKED VISUAL CANON, READ-ONLY)
 │   ├── wireframes.png                  # Общая панорама экранов
-│   ├── 07_Onboarding_... — 09_...      # 3 экрана онбординга и согласия 152-ФЗ
+│   ├── 07_Onboarding_... — 09_...      # 3 экрана онбординга и согласия 152-ФЗ (кнопки OAuth на 09)
 │   └── 14_Main_... — 23_Shop_...       # 10 финальных экранов приложения
 │
 ├── scripts/
-│   └── verify_contracts.py             # Скрипт автоматической верификации паритета 4 контрактов
+│   ├── verify_contracts.py             # Скрипт автоматической верификации паритета 4 контрактов
+│   └── verify_mobile_gates.py          # Скрипт проверки мобильных ворот (screens, конфиги, запреты, тесты)
 │
 └── .agents/skills/                     # ВАЛИДИРОВАННЫЕ НАВЫКИ ДЛЯ AI-АГЕНТОВ
     ├── dart-use-pattern-matching
@@ -90,7 +91,7 @@ docker compose up --build
 Подробное описание ролей, правил разработки и запретов зафиксировано в [`AGENTS.md`](./AGENTS.md).
 
 * **Разработчик 1 (Backend, DevOps & 3 High-Complexity Modules):** отвечает за `/backend/**`, `/scripts/**`, `docker-compose.yml`, `Makefile`, а также 3 математически сложных модуля мобильного клиента:
-  1. `mobile/lib/features/mascot/presentation/widgets/mascot_vector_painter.dart` (векторный Canvas маскота).
+  1. `mobile/lib/features/home_mascot/presentation/widgets/mascot_vector_painter.dart` (векторный Canvas маскота).
   2. `mobile/lib/core/database/outbox_dispatcher.dart` (FSM оффлайн-очереди мутаций).
-  3. `mobile/lib/features/map/presentation/screens/map_activity_screen.dart` (двухрежимная карта с LayerHitNotifier).
+  3. `mobile/lib/features/map_activity/presentation/screens/map_activity_screen.dart` (двухрежимная карта с LayerHitNotifier).
 * **Разработчик 2 (Mobile Client):** отвечает за `/mobile/**` (Flutter UI, BLoC-состояния, навигация `go_router`, локальная база SQLite WAL, экраны 152-ФЗ).

@@ -1,8 +1,17 @@
 include: package:lint/strict.yaml
 
-# Новый протокол плагинов анализатора Dart 3.10–3.13 (analysis_server_plugin)
 plugins:
-  dart_code_linter: ^4.4.1
+  dart_code_linter:
+    version: ^4.4.1
+    diagnostics:
+      always-remove-listener: error
+      avoid-dynamic: error
+      avoid-non-null-assertion: error
+      no-empty-block: error
+  import_lint:
+    version: ^2.0.0
+    diagnostics:
+      import_lint: error
 
 analyzer:
   language:
@@ -26,9 +35,13 @@ analyzer:
     missing_return: error
     unused_local_variable: warning
     unused_field: warning
+    deprecated_member_use: error
+    deprecated_member_use_from_same_package: error
+    todo: error
 
 linter:
   rules:
+    avoid_dynamic_calls: true
     avoid_equals_and_hash_code_on_mutable_classes: true
     avoid_renaming_method_parameters: true
     cascade_invocations: true
@@ -38,6 +51,7 @@ linter:
     prefer_final_locals: true
     prefer_single_quotes: true
     sort_constructors_first: true
+    sort_pub_dependencies: false
     unawaited_futures: true
     unnecessary_lambdas: true
     use_decorated_box: true
@@ -58,9 +72,9 @@ dart_code_linter:
   anti-patterns:
     - long-method
   metrics:
-    cyclomatic-complexity: 20
-    maximum-nesting-level: 5
-    number-of-parameters: 24
+    cyclomatic-complexity: 12
+    maximum-nesting-level: 4
+    number-of-parameters: 5
     source-lines-of-code: 120
     halstead-volume: 200
   metrics-exclude:
@@ -72,13 +86,16 @@ dart_code_linter:
     - prefer-dot-shorthands
     - avoid-non-exhaustive-switch-on-sealed-classes
 
+    - always-remove-listener
     - avoid-cascade-after-if-null
     - avoid-collection-methods-with-unrelated-types
     - avoid-double-slash-imports
     - avoid-duplicate-exports
+    - avoid-dynamic
     - avoid-global-state
     - avoid-nested-conditional-expressions:
         acceptable-level: 3
+    - avoid-non-null-assertion
     - avoid-redundant-async
     - avoid-throw-in-catch-block
     - avoid-unrelated-type-assertions
@@ -86,6 +103,8 @@ dart_code_linter:
     - avoid-unnecessary-type-casts
     - avoid-unnecessary-conditionals
     - avoid-unused-parameters
+    - cancel-subscriptions
+    - dispose-fields
     - no-boolean-literal-compare
     - no-empty-block
     - no-equal-then-else
@@ -110,3 +129,87 @@ dart_code_linter:
         ignore-private-widgets: true
     - prefer-using-list-view
     - use-setstate-synchronously
+
+import_lint:
+  severity: error
+  rules:
+    presentation_no_dio:
+      target: "package:ecotrack_mobile/features/*/presentation/**/*.dart"
+      from: "package:dio/**/*.dart"
+      except: []
+    presentation_no_sqflite:
+      target: "package:ecotrack_mobile/features/*/presentation/**/*.dart"
+      from: "package:sqflite/**/*.dart"
+      except: []
+    presentation_no_sqlite3:
+      target: "package:ecotrack_mobile/features/*/presentation/**/*.dart"
+      from: "package:sqlite3/**/*.dart"
+      except: []
+    presentation_no_geolocator:
+      target: "package:ecotrack_mobile/features/*/presentation/**/*.dart"
+      from: "package:geolocator/**/*.dart"
+      except: []
+    presentation_no_health:
+      target: "package:ecotrack_mobile/features/*/presentation/**/*.dart"
+      from: "package:health/**/*.dart"
+      except: []
+    presentation_no_pedometer:
+      target: "package:ecotrack_mobile/features/*/presentation/**/*.dart"
+      from: "package:pedometer/**/*.dart"
+      except: []
+    presentation_no_firebase_messaging:
+      target: "package:ecotrack_mobile/features/*/presentation/**/*.dart"
+      from: "package:firebase_messaging/**/*.dart"
+      except: []
+    presentation_no_secure_storage:
+      target: "package:ecotrack_mobile/features/*/presentation/**/*.dart"
+      from: "package:flutter_secure_storage/**/*.dart"
+      except: []
+    presentation_no_core_network:
+      target: "package:ecotrack_mobile/features/*/presentation/**/*.dart"
+      from: "package:ecotrack_mobile/core/network/**/*.dart"
+      except: []
+    presentation_no_core_database:
+      target: "package:ecotrack_mobile/features/*/presentation/**/*.dart"
+      from: "package:ecotrack_mobile/core/database/**/*.dart"
+      except: []
+    presentation_no_core_sensors:
+      target: "package:ecotrack_mobile/features/*/presentation/**/*.dart"
+      from: "package:ecotrack_mobile/core/sensors/**/*.dart"
+      except: []
+    presentation_no_feature_data:
+      target: "package:ecotrack_mobile/features/*/presentation/**/*.dart"
+      from: "package:ecotrack_mobile/features/*/data/**/*.dart"
+      except: []
+    domain_no_flutter:
+      target: "package:ecotrack_mobile/features/*/domain/**/*.dart"
+      from: "package:flutter/**/*.dart"
+      except: []
+    domain_no_dio:
+      target: "package:ecotrack_mobile/features/*/domain/**/*.dart"
+      from: "package:dio/**/*.dart"
+      except: []
+    domain_no_sqflite:
+      target: "package:ecotrack_mobile/features/*/domain/**/*.dart"
+      from: "package:sqflite/**/*.dart"
+      except: []
+    domain_no_sqlite3:
+      target: "package:ecotrack_mobile/features/*/domain/**/*.dart"
+      from: "package:sqlite3/**/*.dart"
+      except: []
+    domain_no_core_network:
+      target: "package:ecotrack_mobile/features/*/domain/**/*.dart"
+      from: "package:ecotrack_mobile/core/network/**/*.dart"
+      except: []
+    domain_no_core_database:
+      target: "package:ecotrack_mobile/features/*/domain/**/*.dart"
+      from: "package:ecotrack_mobile/core/database/**/*.dart"
+      except: []
+    domain_no_feature_data:
+      target: "package:ecotrack_mobile/features/*/domain/**/*.dart"
+      from: "package:ecotrack_mobile/features/*/data/**/*.dart"
+      except: []
+    domain_no_feature_presentation:
+      target: "package:ecotrack_mobile/features/*/domain/**/*.dart"
+      from: "package:ecotrack_mobile/features/*/presentation/**/*.dart"
+      except: []

@@ -25,8 +25,11 @@ verify-static:
 	uv run --directory backend ruff format --check app tests
 	uv run --directory backend basedpyright --level error
 	@echo "==> Running Mobile Linters..."
+	uv run --with pyyaml python scripts/verify_mobile_gates.py
 	cd mobile && dart format --output=none --set-exit-if-changed lib test
 	cd mobile && flutter analyze --fatal-infos --fatal-warnings
+	cd mobile && dart analyze --fatal-infos --fatal-warnings
+	cd mobile && dart run import_lint
 
 verify-dbc:
 	@echo "==> Running Symbolic SMT Verification (CrossHair / Z3)..."

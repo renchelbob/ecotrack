@@ -159,20 +159,15 @@ jobs:
             echo "Backend source directories contain placeholder skeletons only; lint/test gates ready for first feature PR." >> "$GITHUB_STEP_SUMMARY"
           fi
 
-      - name: Validate mobile config files and conditional Dart checks
+      - name: Run mobile quality and architecture gates
         run: |
-          uv run --with pyyaml python -c "
-          import yaml, pathlib
-          for p in ['mobile/pubspec.yaml', 'mobile/analysis_options.yaml']:
-              yaml.safe_load(pathlib.Path(p).read_text(encoding='utf-8'))
-          print('Mobile YAML configs valid.')
-          "
+          uv run --with pyyaml python scripts/verify_mobile_gates.py
           DART_FILES=$(find mobile/lib mobile/test -name "*.dart" 2>/dev/null || true)
           if [ -n "$DART_FILES" ]; then
             echo "Dart files detected: mobile CI requires Flutter SDK execution."
             echo "Dart files detected in mobile/lib or mobile/test." >> "$GITHUB_STEP_SUMMARY"
           else
-            echo "Mobile source directories contain placeholder skeletons only; Dart config validated." >> "$GITHUB_STEP_SUMMARY"
+            echo "Mobile source directories contain placeholder skeletons only; mobile config and visual canon validated." >> "$GITHUB_STEP_SUMMARY"
           fi
 
       - name: Run Flutter checks when Dart source exists
@@ -185,12 +180,17 @@ jobs:
       - name: Execute Flutter format, analyze and tests
         if: ${{ hashFiles('mobile/lib/**/*.dart', 'mobile/test/**/*.dart') != '' }}
         working-directory: mobile
+        env:
+          NO_PROXY: 127.0.0.1,localhost
+          no_proxy: 127.0.0.1,localhost
         run: |
           flutter pub get
           dart format --output=none --set-exit-if-changed lib test
           flutter analyze --fatal-infos --fatal-warnings
+          dart analyze --fatal-infos --fatal-warnings
+          dart run import_lint
           if find test -name "*_test.dart" | grep -q .; then
-            flutter test
+            flutter test --coverage
           fi
 
   docker-build-readiness:
