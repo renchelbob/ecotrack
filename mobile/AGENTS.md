@@ -2,12 +2,39 @@
 
 > **Workspace Scope**: `/mobile/**` (All Flutter client features, routing, BLoCs, and UI)
 > **Pre-Delivered High-Complexity Modules (Authored by Developer 1)**:
-> 1. `mobile/lib/features/mascot/presentation/widgets/mascot_vector_painter.dart` (fox mascot Canvas geometry & accessories)
+> 1. `mobile/lib/features/home_mascot/presentation/widgets/mascot_vector_painter.dart` (fox mascot Canvas geometry & accessories)
 > 2. `mobile/lib/core/database/outbox_dispatcher.dart` (offline mutation outbox FSM & causal barrier)
-> 3. `mobile/lib/features/map/presentation/screens/map_activity_screen.dart` (dual-mode `flutter_map` with `LayerHitNotifier`)
+> 3. `mobile/lib/features/map_activity/presentation/screens/map_activity_screen.dart` (dual-mode `flutter_map` with `LayerHitNotifier`)
 > Developer 2 consumes these 3 pre-tested components as standalone building blocks and integrates them into the UI, BLoCs, and router.
+> **Locked Visual Reference Canon (Read-Only)**: `/screens/` (`wireframes.png`, `07..09`, `14..23`)
 > **Read-Only Contracts**: `/contracts/client_sqlite_schema.sql`, `/contracts/openapi.yaml`, `/contracts/error_catalog.json`
 > **Relevant Specs & Skills**: `specs/01-product-and-ux-spec.md`, `specs/02-domain-math-and-algorithms.md`, `specs/05-mobile-flutter-architecture.md`, `specs/06-offline-sync-and-sensors.md`, `specs/08-verification-and-quality-gates.md`, `.agents/skills/`
+
+---
+
+## 0. Mandatory Visual Reference Canon (`/screens/`)
+
+`/screens/` is the **Locked Visual Reference Canon (Single Source of Visual Truth)**. Before writing or modifying any Flutter screen, widget, card, theme, or navigation bar, every mobile developer and AI agent **MUST inspect the matching PNG(s) in `/screens/`** and hold those wireframes in context as the exact visual specification.
+
+- **Visual System**: Light **Architectural Wireframe Grayscale** (`#FFFFFF` scaffold, `#1E1E1E` ink/active CTA, `#D9D9D9` / `#ECECEC` cards, `#B0B0B0` borders, `Inter` typography, line-art fox mascot, 5-tab pill bottom bar with raised/active Home center). Dark themes, green gradients, and generic Material templates are strictly forbidden.
+- **Sole Intentional Product Delta**: On `screens/09_Onboarding_Compact_08_Подарки_и_152ФЗ.png`, the bottom `"Начать >"` button is replaced **directly in-place** by the 3 OAuth 2.1 + PKCE buttons (`"Войти через Яндекс ID"`, `"Войти через VK ID"`, `"Войти через Google (Лаб. режим)"`). There is NO separate `/auth/login` or email/password registration screen.
+
+| Reference PNG (`/screens/`) | Target Route / Scope | Notes & Allowed Product Deltas |
+| :--- | :--- | :--- |
+| `screens/wireframes.png` | Overall navigation & Architectural Wireframe Grayscale system | Master 24-frame panorama (`#01..#23`) |
+| `screens/07_Onboarding_Compact_01_Приветствие.png` | `/onboarding` Step 1 | Welcome screen, line-art fox mascot, 3 slogans, `"Далее"` / `"Продолжить >"` |
+| `screens/08_Onboarding_Compact_07_Препермишен_шагомера.png` | `/onboarding` Step 2 | Step sensor pre-permission & optional GPS toggle |
+| `screens/09_Onboarding_Compact_08_Подарки_и_152ФЗ.png` | `/onboarding` Step 3 + **In-Place OAuth 2.1 + PKCE Sign-In/Sign-Up** | 3 OAuth buttons replace `"Начать >"`; 152-FZ checkbox MUST default unchecked (`false`); render clean Russian (`"зверёк"`, `"партнёров"`) |
+| `screens/14_Main_Compact_16_Главная_Маскот_ФИНАЛ.png` | `/home` (Tab 3) | Balance, streak, line-art mascot, 2 collapsible Today cards, central `+` button |
+| `screens/15_Calc_Compact_17_Калькулятор_поездок_ФИНАЛ.png` | `/map?mode=routes` (Tab 2 Route/CO₂ Calculator & Transport Annotation) | Top mode toggle (`[ Мои маршруты ] \| [ Пункты РСО ]`), transport chips & distance/segment controls |
+| `screens/16_Stats_Compact_05_Статистика_обзор_ФИНАЛ.png` | `/stats` (Tab 1 Overview) | 7-day chart, Activity History preview, 3 Eco-Equivalents Bento cards (exact server values + 3 soft color exceptions) |
+| `screens/17_Stats_Compact_26_График_выбросов_и_доли_ФИНАЛ.png` | `/stats/emissions` | `[ Дни \| Недели \| Месяцы ]` bar chart + average line + transport donut |
+| `screens/18_Stats_Compact_24_История_активности_список_ФИНАЛ.png` | `/stats/history` | Paginated activity list with edit tap on Today/Yesterday |
+| `screens/19_Profile_Compact_18_Профиль_и_настройки_152ФЗ_ФИНАЛ.png` | `/profile` (Tab 5 + 152-FZ Settings) | Profile card, 4-icon badges/wardrobe strip, Friends/Vehicle/RSO cards, 152-FZ consent & erasure controls |
+| `screens/20_Shop_Compact_19_Витрина_промокодов_ФИНАЛ.png` | `/shop` (Tab 4 Catalog) | Balance, search, QR/Promo quick cards, filter chips, fictional partner disclaimer & coupons |
+| `screens/21_Shop_Compact_20_Корзина_заказов_ФИНАЛ.png` | `/shop/cart` | Line items, balance/quantity/total summary, checkout CTA |
+| `screens/22_Shop_Compact_21_Заказы_QR_коды_ФИНАЛ.png` | `/shop/orders/qr` | QR coupon cards (`Активен` / `Использован`), QR modal |
+| `screens/23_Shop_Compact_22_Заказы_буквенный_промокод_ФИНАЛ.png` | `/shop/orders/promo` | Monospace promo code cards + copy action |
 
 ---
 
@@ -18,7 +45,7 @@ Every file in `/mobile/lib/` MUST follow this exact directory hierarchy and stat
 ```text
 mobile/
 ├── pubspec.yaml                              # Dart ^3.13.4, ZERO build_runner dependencies
-├── analysis_options.yaml                     # fatal-infos, fatal-warnings, dart_code_linter, import_lint
+├── analysis_options.yaml                     # fatal-infos, fatal-warnings, dart_code_linter ^4.4.1, import_lint ^2.0.0
 ├── assets/
 │   ├── db/client_sqlite_schema.sql           # Symlink/copy of ../../contracts/client_sqlite_schema.sql
 │   ├── errors/error_catalog.json             # Symlink/copy of ../../contracts/error_catalog.json
@@ -32,7 +59,7 @@ mobile/
 │   │   │   └── result.dart                   # Sealed Result<T, AppError> (Ok / Err)
 │   │   ├── database/
 │   │   │   ├── sqlite_database.dart          # sqflite/sqlite3 WAL initializer & transaction runner
-│   │   │   └── outbox_dispatcher.dart        # Exponential backoff worker for offline_mutation_outbox
+│   │   │   └── outbox_dispatcher.dart        # (Authored by Developer 1) Exponential backoff worker for offline_mutation_outbox
 │   │   ├── network/
 │   │   │   ├── api_client.dart               # Dio ^5.x wrapper returning Future<Result<T, AppError>>
 │   │   │   ├── auth_refresh_interceptor.dart # QueuedInterceptorsWrapper single-flight JWT refresh lock
@@ -50,7 +77,7 @@ mobile/
 │   │   └── utils/
 │   │       └── uuid_v7.dart                  # Pure Dart RFC 9562 UUIDv7 generator
 │   └── features/
-│       ├── auth_fz152/                       # OAuth 2.1 PKCE, Google lab warning + phone modal, 152-FZ
+│       ├── auth_fz152/                       # In-place Step 3 OAuth 2.1 PKCE, Google lab warning + phone modal, 152-FZ
 │       │   ├── domain/
 │       │   ├── data/
 │       │   └── presentation/
@@ -62,10 +89,14 @@ mobile/
 │       │   ├── domain/
 │       │   ├── data/
 │       │   └── presentation/
+│       │       └── screens/
+│       │           └── map_activity_screen.dart  # (Authored by Developer 1) Dual-mode flutter_map + LayerHitNotifier
 │       ├── home_mascot/                      # Tab 3: Balance, streak, interactive CustomPainter mascot, Today cards
 │       │   ├── domain/
 │       │   ├── data/
 │       │   └── presentation/
+│       │       └── widgets/
+│       │           └── mascot_vector_painter.dart # (Authored by Developer 1) Fox mascot Canvas geometry & accessories
 │       ├── shop/                             # Tab 4: Fictional partner catalog, cart, QR/promo orders, virtual items
 │       │   ├── domain/
 │       │   ├── data/
@@ -80,9 +111,9 @@ mobile/
     └── widgets/                              # Mascot CustomPainter & 5-tab navigation widget tests
 ```
 
-### Static Layer Import Rules (Enforced by `import_lint`)
-1. `features/*/presentation/**` **MUST NOT** import `package:dio/dio.dart`, `package:sqflite/sqflite.dart`, `package:sqlite3/sqlite3.dart`, `package:geolocator/geolocator.dart`, `package:health/health.dart`, `package:pedometer/pedometer.dart`, `package:flutter_secure_storage/flutter_secure_storage.dart`, or any file in `features/*/data/**`.
-2. `features/*/domain/**` **MUST NOT** import `package:flutter/material.dart`, `package:flutter/widgets.dart`, `core/network/**`, `core/database/**`, `features/*/data/**`, or `features/*/presentation/**`.
+### Static Layer Import Rules (Enforced by `import_lint ^2.0.0`)
+1. `features/*/presentation/**` **MUST NOT** import `package:dio/**`, `package:sqflite/**`, `package:sqlite3/**`, `package:geolocator/**`, `package:health/**`, `package:pedometer/**`, `package:firebase_messaging/**`, `package:flutter_secure_storage/**`, `core/network/**`, `core/database/**`, `core/sensors/**`, or any file in `features/*/data/**`.
+2. `features/*/domain/**` **MUST NOT** import `package:flutter/**`, `package:dio/**`, `package:sqflite/**`, `package:sqlite3/**`, `core/network/**`, `core/database/**`, `features/*/data/**`, or `features/*/presentation/**`.
 3. Cross-feature imports are allowed ONLY between `domain/` layers or via `core/router/app_router.dart`.
 
 ---
@@ -244,25 +275,29 @@ final class DailyActivityCubit extends Cubit<DailyActivityState> {
 5. **FORBIDDEN**: Leaving any `StreamSubscription`, `AnimationController`, `TextEditingController`, or `MapController` undisposed in `close()` / `dispose()`.
 6. **FORBIDDEN**: Computing authoritative point balances or unlocking shop coupons on the client without recording an outbox mutation and receiving server `point_ledger` confirmation.
 7. **FORBIDDEN**: Mocking `Database` (`sqflite`/`sqlite3`) or domain calculators with `mockito`/`mocktail`. Run `sqlite3` FFI tests against the real `contracts/client_sqlite_schema.sql`.
+8. **FORBIDDEN**: Deviating visually from `/screens/*.png` (dark themes, green gradients, generic Material templates, email/password registration, or a separate `/auth/login` UI screen bypassing `screens/09_Onboarding_Compact_08_Подарки_и_152ФЗ.png`).
 
 ---
 
 ## 5. Local Verification Commands (Developer 2)
 
-Run all checks from `/mobile/`:
+Run all checks from `/mobile/` (or run `verify_mobile_gates.py` from repo root without `../`):
 
 ```bash
-# 1. Formatting & Zero-Warning Static Analysis
+# 1. Mobile Contract, Canon & Static Ban Gates (runs from /mobile/ or repo root)
+uv run --with pyyaml python ../scripts/verify_mobile_gates.py
+
+# 2. Formatting & Zero-Warning Static Analysis (dart analyze runs dart_code_linter & import_lint ^2.0.0 plugins)
 dart format --output=none --set-exit-if-changed lib test
 flutter analyze --fatal-infos --fatal-warnings
+dart analyze --fatal-infos --fatal-warnings
 
-# 2. Complexity, Cyclomatic Metrics & Layer Import Boundaries
-dart run dart_code_linter:metrics analyze lib --fatal-style --fatal-performance --fatal-warnings
+# 3. Standalone Import Boundary CLI Verification
 dart run import_lint
 
-# 3. Property-Based Testing (glados) & Real SQLite 3 Schema Tests
+# 4. Property-Based Testing (glados) & Real SQLite 3 Schema Tests
 flutter test test/pbt/ test/database/ test/widgets/ --coverage
 
-# 4. Impeller 60fps Frame Budget Benchmark (Vector Mascot + FlutterMap Pan/Zoom)
+# 5. Impeller 60fps Frame Budget Benchmark (Vector Mascot + FlutterMap Pan/Zoom)
 flutter test integration_test/impeller_map_mascot_benchmark_test.dart
 ```
