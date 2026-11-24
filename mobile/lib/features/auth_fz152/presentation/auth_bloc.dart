@@ -62,6 +62,31 @@ final class AuthCubit extends Cubit<AuthState> {
     }
   }
 
+  Future<void> register({
+    required String displayName,
+    required String email,
+    required String password,
+    required String ruPhone,
+    required bool allowPdnProcessing,
+    required bool allowTelemetry,
+  }) async {
+    emit(const AuthLoading());
+    final result = await _authRepository.register(
+      displayName: displayName,
+      email: email,
+      password: password,
+      ruPhone: ruPhone,
+      allowPdnProcessing: allowPdnProcessing,
+      allowTelemetry: allowTelemetry,
+    );
+    switch (result) {
+      case Ok(value: final session):
+        emit(AuthAuthenticated(session));
+      case Err(error: final appError):
+        emit(AuthFailure(appError));
+    }
+  }
+
   Future<void> loginWithGoogle(String authCode, [String? phone]) async {
     emit(const AuthLoading());
     final result = await _authRepository.loginWithGoogle(

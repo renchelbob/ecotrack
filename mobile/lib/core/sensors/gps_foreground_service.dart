@@ -45,6 +45,21 @@ final class GpsForegroundService {
         permission == LocationPermission.whileInUse;
   }
 
+  Future<Position?> getCurrentPosition() async {
+    final hasPermission = await checkAndRequestPermission();
+    if (!hasPermission) return null;
+    try {
+      return await Geolocator.getCurrentPosition(
+        locationSettings: const LocationSettings(
+          accuracy: LocationAccuracy.medium,
+          timeLimit: Duration(seconds: 5),
+        ),
+      );
+    } catch (_) {
+      return await Geolocator.getLastKnownPosition();
+    }
+  }
+
   Future<void> startTracking({void Function(GpsPoint point)? onPoint}) async {
     final hasPermission = await checkAndRequestPermission();
     if (!hasPermission) {

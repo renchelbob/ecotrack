@@ -162,25 +162,63 @@ class _MapActivityScreenState extends State<MapActivityScreen> {
     ),
     floatingActionButton: BlocBuilder<MapActivityCubit, MapActivityState>(
       builder: (context, state) {
-        if (state is! MapActivityLoaded || state.mode != MapMode.myRoutes) {
+        if (state is! MapActivityLoaded) {
           return const SizedBox.shrink();
         }
         final isTracking = state.isTrackingGps;
-        return FloatingActionButton.extended(
-          backgroundColor: isTracking
-              ? EcoColors.errorRed
-              : EcoColors.primaryGreen,
-          foregroundColor: Colors.white,
-          icon: Icon(isTracking ? Icons.stop : Icons.play_arrow),
-          label: Text(isTracking ? 'Остановить запись' : 'Начать запись'),
-          onPressed: () => context.read<MapActivityCubit>().toggleGpsTracking(),
+        return Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.end,
+          children: [
+            FloatingActionButton.small(
+              heroTag: 'my_location_btn',
+              backgroundColor: EcoColors.surface,
+              foregroundColor: EcoColors.primaryGreen,
+              onPressed: () async {
+                final pos = await context.read<MapActivityCubit>().locateMe();
+                if (pos != null) {
+                  _mapController.move(
+                    LatLng(pos.latitude, pos.longitude),
+                    15.5,
+                  );
+                } else {
+                  if (context.mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text('Включите GPS для определения координат'),
+                        duration: Duration(seconds: 2),
+                      ),
+                    );
+                  }
+                }
+              },
+              child: const Icon(Icons.my_location),
+            ),
+            if (state.mode == MapMode.myRoutes) ...[
+              const SizedBox(height: 12),
+              FloatingActionButton.extended(
+                heroTag: 'tracking_btn',
+                backgroundColor: isTracking
+                    ? EcoColors.errorRed
+                    : EcoColors.primaryGreen,
+                foregroundColor: Colors.white,
+                icon: Icon(isTracking ? Icons.stop : Icons.play_arrow),
+                label: Text(isTracking ? 'Остановить запись' : 'Начать запись'),
+                onPressed: () =>
+                    context.read<MapActivityCubit>().toggleGpsTracking(),
+              ),
+            ],
+          ],
         );
       },
     ),
   );
 
   Widget _buildMap(BuildContext context, MapActivityLoaded state) {
-    const center = LatLng(58.5990, 49.6600); // Default Kirov/Campus center
+    final userPos = state.currentPosition;
+    final center = userPos != null
+        ? LatLng(userPos.latitude, userPos.longitude)
+        : const LatLng(58.5990, 49.6600); // Default Kirov/Campus center
 
     final routePoints = state.recordedPoints
         .map((p) => LatLng(p.latitude, p.longitude))
@@ -188,7 +226,10 @@ class _MapActivityScreenState extends State<MapActivityScreen> {
 
     return FlutterMap(
       mapController: _mapController,
-      options: const MapOptions(initialCenter: center, initialZoom: 13.5),
+      options: MapOptions(
+        initialCenter: center,
+        initialZoom: userPos != null ? 15.0 : 13.5,
+      ),
       children: [
         TileLayer(
           urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
@@ -204,40 +245,77 @@ class _MapActivityScreenState extends State<MapActivityScreen> {
               ),
             ],
           ),
-        if (state.mode == MapMode.recyclingMap)
-          MarkerLayer(
-            markers: state.wastePoints
-                .map(
-                  (point) => Marker(
-                    point: LatLng(point.latitude, point.longitude),
-                    width: 44,
-                    height: 44,
-                    child: GestureDetector(
-                      onTap: () => _showPointDetails(context, point),
-                      child: DecoratedBox(
-                        decoration: BoxDecoration(
-                          color: EcoColors.primaryGreen,
-                          shape: BoxShape.circle,
-                          border: Border.all(color: Colors.white, width: 2),
-                          boxShadow: const [
-                            BoxShadow(
-                              color: Colors.black26,
-                              blurRadius: 4,
-                              offset: Offset(0, 2),
-                            ),
-                          ],
-                        ),
-                        child: const Icon(
-                          Icons.recycling,
-                          color: Colors.white,
-                          size: 24,
-                        ),
+        MarkerLayer(
+          markers: [
+            // Current user GPS position indicator (pulsing blue dot)
+            if (userPos != null)
+              Marker(
+                point: LatLng(userPos.latitude, userPos.longitude),
+                width: 48,
+                height: 48,
+                child: Stack(
+                  alignment: Alignment.center,
+                  children: [
+                    Container(
+                      width: 44,
+                      height: 44,
+                      decoration: BoxDecoration(
+                        color: EcoColors.accentBlue.withValues(alpha: 0.25),
+                        shape: BoxShape.circle,
+                      ),
+                    ),
+                    Container(
+                      width: 18,
+                      height: 18,
+                      decoration: BoxDecoration(
+                        color: EcoColors.accentBlue,
+                        shape: BoxShape.circle,
+                        border: Border.all(color: Colors.white, width: 3),
+                        boxShadow: const [
+                          BoxShadow(
+                            color: Colors.black38,
+                            blurRadius: 6,
+                            offset: Offset(0, 2),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            // Waste recycling points markers
+            if (state.mode == MapMode.recyclingMap)
+              ...state.wastePoints.map(
+                (point) => Marker(
+                  point: LatLng(point.latitude, point.longitude),
+                  width: 44,
+                  height: 44,
+                  child: GestureDetector(
+                    onTap: () => _showPointDetails(context, point),
+                    child: DecoratedBox(
+                      decoration: BoxDecoration(
+                        color: EcoColors.primaryGreen,
+                        shape: BoxShape.circle,
+                        border: Border.all(color: Colors.white, width: 2),
+                        boxShadow: const [
+                          BoxShadow(
+                            color: Colors.black26,
+                            blurRadius: 4,
+                            offset: Offset(0, 2),
+                          ),
+                        ],
+                      ),
+                      child: const Icon(
+                        Icons.recycling,
+                        color: Colors.white,
+                        size: 24,
                       ),
                     ),
                   ),
-                )
-                .toList(),
-          ),
+                ),
+              ),
+          ],
+        ),
       ],
     );
   }

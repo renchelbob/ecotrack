@@ -18,17 +18,40 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 
-class EcoTrackApp extends StatelessWidget {
+import 'package:go_router/go_router.dart';
+
+class EcoTrackApp extends StatefulWidget {
   const EcoTrackApp({super.key, this.sqliteDb});
 
   final SqliteDatabase? sqliteDb;
 
   @override
+  State<EcoTrackApp> createState() => _EcoTrackAppState();
+}
+
+class _EcoTrackAppState extends State<EcoTrackApp> {
+  late final AuthCubit _authCubit;
+  late final GoRouter _router;
+
+  @override
+  void initState() {
+    super.initState();
+    _authCubit = AuthCubit(AuthRepositoryImpl())..checkSession();
+    _router = AppRouter.createRouter(_authCubit);
+  }
+
+  @override
+  void dispose() {
+    _authCubit.close();
+    _router.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
-    final db = sqliteDb ?? SqliteDatabase.instance;
+    final db = widget.sqliteDb ?? SqliteDatabase.instance;
     final gpsService = GpsForegroundService();
 
-    final authRepo = AuthRepositoryImpl();
     final homeRepo = HomeRepositoryImpl(db: db);
     final statsRepo = StatsRepositoryImpl();
     final mapRepo = MapRepositoryImpl(db: db);
@@ -37,9 +60,7 @@ class EcoTrackApp extends StatelessWidget {
 
     return MultiBlocProvider(
       providers: [
-        BlocProvider<AuthCubit>(
-          create: (_) => AuthCubit(authRepo)..checkSession(),
-        ),
+        BlocProvider<AuthCubit>.value(value: _authCubit),
         BlocProvider<HomeCubit>(
           create: (_) => HomeCubit(homeRepo)..loadTodaySummary(),
         ),
@@ -62,7 +83,7 @@ class EcoTrackApp extends StatelessWidget {
         title: 'EcoTrack',
         debugShowCheckedModeBanner: false,
         theme: EcoTheme.darkTheme,
-        routerConfig: AppRouter.router,
+        routerConfig: _router,
         localizationsDelegates: const [
           GlobalMaterialLocalizations.delegate,
           GlobalWidgetsLocalizations.delegate,

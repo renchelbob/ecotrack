@@ -19,6 +19,7 @@ final class MapActivityLoaded extends MapActivityState {
     required this.isTrackingGps,
     required this.recordedPoints,
     this.selectedWastePoint,
+    this.currentPosition,
   });
 
   final MapMode mode;
@@ -26,6 +27,7 @@ final class MapActivityLoaded extends MapActivityState {
   final bool isTrackingGps;
   final List<GpsPoint> recordedPoints;
   final WastePoint? selectedWastePoint;
+  final GpsPoint? currentPosition;
 
   MapActivityLoaded copyWith({
     MapMode? mode,
@@ -34,6 +36,7 @@ final class MapActivityLoaded extends MapActivityState {
     List<GpsPoint>? recordedPoints,
     WastePoint? selectedWastePoint,
     bool clearSelectedWastePoint = false,
+    GpsPoint? currentPosition,
   }) => MapActivityLoaded(
     mode: mode ?? this.mode,
     wastePoints: wastePoints ?? this.wastePoints,
@@ -42,6 +45,7 @@ final class MapActivityLoaded extends MapActivityState {
     selectedWastePoint: clearSelectedWastePoint
         ? null
         : (selectedWastePoint ?? this.selectedWastePoint),
+    currentPosition: currentPosition ?? this.currentPosition,
   );
 }
 
@@ -64,6 +68,17 @@ final class MapActivityCubit extends Cubit<MapActivityState> {
   Future<void> loadMapData() async {
     emit(const MapActivityLoading());
     final result = await _repository.getWastePoints();
+    final pos = await _gpsService.getCurrentPosition();
+    final userGps = pos != null
+        ? GpsPoint(
+            latitude: pos.latitude,
+            longitude: pos.longitude,
+            altitude: pos.altitude,
+            speedMs: pos.speed,
+            recordedAt: pos.timestamp,
+          )
+        : null;
+
     switch (result) {
       case Ok(value: final points):
         emit(
@@ -72,11 +87,30 @@ final class MapActivityCubit extends Cubit<MapActivityState> {
             wastePoints: points,
             isTrackingGps: _gpsService.isTracking,
             recordedPoints: _gpsService.recordedPoints,
+            currentPosition: userGps,
           ),
         );
       case Err(error: final appError):
         emit(MapActivityFailure(appError));
     }
+  }
+
+  Future<GpsPoint?> locateMe() async {
+    final pos = await _gpsService.getCurrentPosition();
+    if (pos != null) {
+      final point = GpsPoint(
+        latitude: pos.latitude,
+        longitude: pos.longitude,
+        altitude: pos.altitude,
+        speedMs: pos.speed,
+        recordedAt: pos.timestamp,
+      );
+      if (state case final MapActivityLoaded loaded) {
+        emit(loaded.copyWith(currentPosition: point));
+      }
+      return point;
+    }
+    return null;
   }
 
   void switchMode(MapMode newMode) {
@@ -105,7 +139,12 @@ final class MapActivityCubit extends Cubit<MapActivityState> {
         await _gpsService.startTracking(
           onPoint: (pt) {
             if (state case final MapActivityLoaded cur) {
-              emit(cur.copyWith(recordedPoints: [...cur.recordedPoints, pt]));
+              emit(
+                cur.copyWith(
+                  recordedPoints: [...cur.recordedPoints, pt],
+                  currentPosition: pt,
+                ),
+              );
             }
           },
         );

@@ -202,13 +202,25 @@ class _LoginScreenState extends State<LoginScreen> {
                     );
                   },
                 ),
-                const SizedBox(height: 24),
-                TextButton(
-                  onPressed: () => context.go('/home'),
-                  child: const Text(
-                    'Продолжить в гостевом режиме',
-                    style: TextStyle(color: EcoColors.textSecondary),
-                  ),
+                const SizedBox(height: 16),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    const Text(
+                      'Нет аккаунта?',
+                      style: TextStyle(color: EcoColors.textSecondary),
+                    ),
+                    TextButton(
+                      onPressed: () => context.push('/register'),
+                      child: const Text(
+                        'Зарегистрироваться',
+                        style: TextStyle(
+                          color: EcoColors.primaryGreenLight,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
               ],
             ),

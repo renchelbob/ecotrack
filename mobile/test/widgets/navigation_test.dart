@@ -27,6 +27,26 @@ final class _FakeAuthRepository implements AuthRepository {
   );
 
   @override
+  Future<Result<AuthSession, AppError>> register({
+    required String displayName,
+    required String email,
+    required String password,
+    required String ruPhone,
+    required bool allowPdnProcessing,
+    required bool allowTelemetry,
+  }) async => const Ok(
+    AuthSession(
+      accessToken: 'fake_access',
+      refreshToken: 'fake_refresh',
+      userId: 'usr_001',
+      displayName: 'Тест',
+      email: 'test@ecotrack.ru',
+      phoneMasked: '+7 (***) ***-00-00',
+      hasFz152Consent: true,
+    ),
+  );
+
+  @override
   Future<Result<AuthSession, AppError>> loginWithGoogle({
     required String googleAuthCode,
     String? phone,

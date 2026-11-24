@@ -3,14 +3,20 @@ import 'package:ecotrack_mobile/core/error/app_error.dart';
 import 'package:ecotrack_mobile/core/error/result.dart';
 import 'package:ecotrack_mobile/core/network/api_client.dart';
 import 'package:ecotrack_mobile/features/profile_social/domain/profile_models.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 final class ProfileRepositoryImpl implements ProfileRepository {
-  ProfileRepositoryImpl({ApiClient? apiClient, SqliteDatabase? db})
-    : _apiClient = apiClient ?? ApiClient(),
-      _db = db ?? SqliteDatabase.instance;
+  ProfileRepositoryImpl({
+    ApiClient? apiClient,
+    SqliteDatabase? db,
+    FlutterSecureStorage? secureStorage,
+  }) : _apiClient = apiClient ?? ApiClient(),
+       _db = db ?? SqliteDatabase.instance,
+       _secureStorage = secureStorage ?? const FlutterSecureStorage();
 
   final ApiClient _apiClient;
   final SqliteDatabase _db;
+  final FlutterSecureStorage _secureStorage;
 
   @override
   Future<Result<UserProfile, AppError>> getProfile() async {
@@ -25,19 +31,32 @@ final class ProfileRepositoryImpl implements ProfileRepository {
       },
     );
 
-    return netResult.fold(Ok.new, (err) {
-      // Fallback profile for offline/guest mode (Vadim - Developer 2)
-      final defaultProfile = UserProfile(
-        id: 'user-vadim-dev2',
-        displayName: 'Вадим Нопин',
-        email: 'vadim.nopin@vyatsu.ru',
-        phoneMasked: '+7 (912) ***-45-67',
-        friendCode: 'ECO-VDM2-2026',
-        pointsBalance: 120,
-        dailyStepGoal: 10000,
-        vehicle: UserVehicle.defaultVehicle(),
-      );
-      return Ok(defaultProfile);
+    return netResult.fold(Ok.new, (err) async {
+      // If server unreachable, check if user is logged in
+      final userId = await _secureStorage.read(key: 'auth_user_id');
+      final name = await _secureStorage.read(key: 'auth_user_name');
+      if (userId != null && name != null) {
+        final email = await _secureStorage.read(key: 'auth_user_email');
+        final phone = await _secureStorage.read(key: 'auth_user_phone');
+        final cleanCode = userId
+            .toUpperCase()
+            .replaceAll(RegExp('[^A-Z0-9]'), '')
+            .padRight(4, '0')
+            .substring(0, 4);
+        return Ok(
+          UserProfile(
+            id: userId,
+            displayName: name,
+            email: email ?? '',
+            phoneMasked: phone ?? '',
+            friendCode: 'ECO-$cleanCode',
+            pointsBalance: 0,
+            dailyStepGoal: 10000,
+            vehicle: UserVehicle.defaultVehicle(),
+          ),
+        );
+      }
+      return Err(err);
     });
   }
 

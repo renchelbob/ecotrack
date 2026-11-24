@@ -30,7 +30,7 @@ final class SqliteDatabase {
     final databasesPath = await getDatabasesPath();
     final dbPath = p.join(databasesPath, 'ecotrack_client.db');
 
-    _db = await openDatabase(
+    Future<Database> open() => openDatabase(
       dbPath,
       version: 1,
       onCreate: (db, version) async {
@@ -38,10 +38,19 @@ final class SqliteDatabase {
       },
       onConfigure: (db) async {
         // Enforce WAL mode and foreign keys for high performance and integrity
-        await db.execute('PRAGMA journal_mode = WAL;');
+        await db.rawQuery('PRAGMA journal_mode = WAL;');
+        await db.rawQuery('PRAGMA synchronous = NORMAL;');
         await db.execute('PRAGMA foreign_keys = ON;');
       },
     );
+
+    try {
+      _db = await open();
+    } catch (_) {
+      // If previous schema creation aborted midway, purge corrupted DB and rebuild clean
+      await deleteDatabase(dbPath);
+      _db = await open();
+    }
   }
 
   Future<void> _executeSchema(Database db) async {
@@ -54,16 +63,23 @@ final class SqliteDatabase {
       schemaSql = _fallbackSchemaSql;
     }
 
-    final statements = schemaSql
+    // Strip single-line SQL comments (-- ...) before statement splitting
+    final cleanedSql = schemaSql
+        .split('\n')
+        .where((line) => !line.trimLeft().startsWith('--'))
+        .join('\n');
+
+    final statements = cleanedSql
         .split(';')
         .map((s) => s.trim())
-        .where((s) => s.isNotEmpty && !s.startsWith('--'));
+        .where((s) => s.isNotEmpty);
 
-    final batch = db.batch();
     for (final stmt in statements) {
-      batch.execute(stmt);
+      if (stmt.toUpperCase().startsWith('PRAGMA')) {
+        continue;
+      }
+      await db.execute(stmt);
     }
-    await batch.commit(noResult: true);
   }
 
   Future<void> close() async {

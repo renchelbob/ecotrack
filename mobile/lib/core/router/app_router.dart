@@ -1,6 +1,10 @@
+import 'dart:async';
 import 'package:ecotrack_mobile/core/theme/eco_theme.dart';
+import 'package:ecotrack_mobile/features/auth_fz152/data/auth_repository_impl.dart';
+import 'package:ecotrack_mobile/features/auth_fz152/presentation/auth_bloc.dart';
 import 'package:ecotrack_mobile/features/auth_fz152/presentation/login_screen.dart';
 import 'package:ecotrack_mobile/features/auth_fz152/presentation/onboarding_screen.dart';
+import 'package:ecotrack_mobile/features/auth_fz152/presentation/register_screen.dart';
 import 'package:ecotrack_mobile/features/home_mascot/presentation/home_screen.dart';
 import 'package:ecotrack_mobile/features/map_activity/presentation/map_activity_screen.dart';
 import 'package:ecotrack_mobile/features/profile_social/presentation/profile_settings_screen.dart';
@@ -11,18 +15,57 @@ import 'package:go_router/go_router.dart';
 
 final GlobalKey<NavigatorState> _rootNavigatorKey = GlobalKey<NavigatorState>();
 
+final class AuthRouterListenable extends ChangeNotifier {
+  AuthRouterListenable(AuthCubit authCubit) {
+    _subscription = authCubit.stream.listen((_) => notifyListeners());
+  }
+  late final StreamSubscription<dynamic> _subscription;
+
+  @override
+  void dispose() {
+    _subscription.cancel();
+    super.dispose();
+  }
+}
+
 final class AppRouter {
   AppRouter._();
 
-  static final GoRouter router = GoRouter(
+  static GoRouter get router => createRouter(AuthCubit(AuthRepositoryImpl()));
+
+  static GoRouter createRouter(AuthCubit authCubit) => GoRouter(
     navigatorKey: _rootNavigatorKey,
-    initialLocation: '/home',
+    initialLocation: '/login',
+    refreshListenable: AuthRouterListenable(authCubit),
+    redirect: (context, state) {
+      final authState = authCubit.state;
+      final isAuthenticated = authState is AuthAuthenticated;
+      final loc = state.matchedLocation;
+      final isAuthRoute =
+          loc == '/login' || loc == '/register' || loc == '/onboarding';
+
+      // If user is authenticated and is on an auth screen -> open profile screen directly
+      if (isAuthenticated && isAuthRoute) {
+        return '/profile';
+      }
+
+      // If user is unauthenticated and tries to access app content -> redirect to login
+      if (!isAuthenticated && !isAuthRoute) {
+        return '/login';
+      }
+
+      return null;
+    },
     routes: [
       GoRoute(
         path: '/onboarding',
         builder: (context, state) => const OnboardingScreen(),
       ),
       GoRoute(path: '/login', builder: (context, state) => const LoginScreen()),
+      GoRoute(
+        path: '/register',
+        builder: (context, state) => const RegisterScreen(),
+      ),
       StatefulShellRoute.indexedStack(
         builder: (context, state, navigationShell) =>
             ScaffoldWithNavBar(navigationShell: navigationShell),

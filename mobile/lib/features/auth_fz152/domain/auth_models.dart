@@ -64,6 +64,15 @@ abstract interface class AuthRepository {
     required String password,
   });
 
+  Future<Result<AuthSession, AppError>> register({
+    required String displayName,
+    required String email,
+    required String password,
+    required String ruPhone,
+    required bool allowPdnProcessing,
+    required bool allowTelemetry,
+  });
+
   Future<Result<AuthSession, AppError>> loginWithGoogle({
     required String googleAuthCode,
     String? phone,

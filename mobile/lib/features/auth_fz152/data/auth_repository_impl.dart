@@ -38,6 +38,47 @@ final class AuthRepositoryImpl implements AuthRepository {
   }
 
   @override
+  Future<Result<AuthSession, AppError>> register({
+    required String displayName,
+    required String email,
+    required String password,
+    required String ruPhone,
+    required bool allowPdnProcessing,
+    required bool allowTelemetry,
+  }) async {
+    if (!allowPdnProcessing) {
+      return Err(AppError.fromCode('FZ152_CONSENT_REQUIRED'));
+    }
+    if (!ruPhone.startsWith('+7')) {
+      return Err(AppError.fromCode('FZ152_GOOGLE_PHONE_REQUIRED'));
+    }
+
+    final result = await _apiClient.post<AuthSession>(
+      path: '/v1/auth/register',
+      data: {
+        'display_name': displayName,
+        'email': email,
+        'password': password,
+        'phone': ruPhone,
+        'allow_pdn_processing': allowPdnProcessing,
+        'allow_telemetry': allowTelemetry,
+      },
+      fromJson: (data) {
+        if (data case final Map<String, Object?> map) {
+          final parsed = AuthSession.fromJson(map);
+          return parsed.fold((s) => s, (e) => throw e);
+        }
+        throw AppError.fromCode('VALIDATION_ERROR');
+      },
+    );
+
+    return result.fold((session) async {
+      await _persistSession(session);
+      return Ok(session);
+    }, Err.new);
+  }
+
+  @override
   Future<Result<AuthSession, AppError>> loginWithGoogle({
     required String googleAuthCode,
     String? phone,
