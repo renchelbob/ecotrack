@@ -88,21 +88,6 @@ final class _OnboardingScreenState() extends State<OnboardingScreen> {
     setState(() => _gpsTrackingConsent = enabled);
   }
 
-  void _startLocalSession() {
-    if (!_fz152ConsentAccepted) {
-      return;
-    }
-    context.read<AuthBloc>().add(
-      AuthLocalDemoRequested(
-        ConsentScopeObject(
-          personalData152fz: _fz152ConsentAccepted,
-          healthStepsSensor: true,
-          backgroundGeolocation: _gpsTrackingConsent,
-        ),
-      ),
-    );
-  }
-
   void _signInWithProvider(AuthProviderType provider) {
     if (!_fz152ConsentAccepted) {
       return;
@@ -114,27 +99,6 @@ final class _OnboardingScreenState() extends State<OnboardingScreen> {
           personalData152fz: _fz152ConsentAccepted,
           healthStepsSensor: true,
           backgroundGeolocation: _gpsTrackingConsent,
-        ),
-      ),
-    );
-  }
-
-  void _openOAuthSheet() {
-    final authBloc = context.read<AuthBloc>();
-    showModalBottomSheet<void>(
-      context: context,
-      backgroundColor: EcoColors.surfacePrimary,
-      shape: const RoundedRectangleBorder(
-        borderRadius: .vertical(top: .circular(24)),
-      ),
-      builder: (sheetCtx) => BlocProvider<AuthBloc>.value(
-        value: authBloc,
-        child: _OAuthProvidersSheet(
-          consentAccepted: _fz152ConsentAccepted,
-          onSelectProvider: (provider) {
-            Navigator.of(sheetCtx).pop();
-            _signInWithProvider(provider);
-          },
         ),
       ),
     );
@@ -171,8 +135,7 @@ final class _OnboardingScreenState() extends State<OnboardingScreen> {
             onConsentChanged: (val) =>
                 setState(() => _fz152ConsentAccepted = val),
             onReadPolicy: () => unawaited(Fz152PolicySheet.show(context)),
-            onStartLocal: _startLocalSession,
-            onOpenOAuth: _openOAuthSheet,
+            onSelectProvider: _signInWithProvider,
           ),
         ],
       ),
@@ -423,13 +386,16 @@ final class const _OnboardingStepThree({
   required final bool consentAccepted,
   required final ValueChanged<bool> onConsentChanged,
   required final VoidCallback onReadPolicy,
-  required final VoidCallback onStartLocal,
-  required final VoidCallback onOpenOAuth,
+  required final ValueChanged<AuthProviderType> onSelectProvider,
 }) extends StatelessWidget {
   @override
   Widget build(BuildContext context) => BlocBuilder<AuthBloc, AuthState>(
     builder: (context, authState) {
-      final bool isLoading = authState is AuthAuthenticating;
+      final loadingProvider = switch (authState) {
+        AuthAuthenticating(:final activeProvider) => activeProvider,
+        _ => null,
+      };
+      final anyLoading = authState is AuthAuthenticating;
 
       return ColoredBox(
         color: EcoColors.surfacePrimary,
@@ -447,7 +413,7 @@ final class const _OnboardingStepThree({
                     ),
                     child: IntrinsicHeight(
                       child: Padding(
-                        padding: const .only(top: 16, bottom: 16),
+                        padding: const .only(top: 14, bottom: 16),
                         child: Column(
                           crossAxisAlignment: .stretch,
                           children: [
@@ -462,19 +428,19 @@ final class const _OnboardingStepThree({
                                 ),
                               ),
                             ),
-                            const SizedBox(height: 22),
+                            const SizedBox(height: 18),
                             const _EdgeAttachedPill(
                               alignRight: false,
                               horizontalMargin: 36,
-                              text: 'Виртуальный зверек растет и развивается вместе с вашими успехами',
+                              text: 'Виртуальный зверёк растёт и развивается вместе с вашими успехами',
                             ),
-                            const SizedBox(height: 18),
+                            const SizedBox(height: 14),
                             const _EdgeAttachedPill(
                               alignRight: true,
                               horizontalMargin: 48,
                               text: 'Обменивайте накопленные баллы на скидки и промокоды от наших партнёров',
                             ),
-                            const SizedBox(height: 14),
+                            const SizedBox(height: 10),
                             Align(
                               alignment: .centerLeft,
                               child: Padding(
@@ -485,40 +451,62 @@ final class const _OnboardingStepThree({
                               ),
                             ),
                             const Spacer(),
-                            const SizedBox(height: 14),
+                            const SizedBox(height: 12),
                             Padding(
-                              padding: const .symmetric(horizontal: 28),
+                              padding: const .symmetric(horizontal: 24),
                               child: _ConsentBox(
                                 accepted: consentAccepted,
                                 onChanged: onConsentChanged,
                                 onReadPolicy: onReadPolicy,
                               ),
                             ),
-                            const SizedBox(height: 18),
+                            const SizedBox(height: 14),
                             const _OnboardingDots(
                               activeIndex: 2,
                               onDarkCard: true,
                             ),
-                            const SizedBox(height: 16),
+                            const SizedBox(height: 14),
                             Padding(
-                              padding: const .symmetric(horizontal: 28),
-                              child: _WireframeActionButton(
-                                label: 'Начать',
-                                enabled: consentAccepted && !isLoading,
-                                isLoading: isLoading,
-                                onPressed: onStartLocal,
-                              ),
-                            ),
-                            const SizedBox(height: 6),
-                            Center(
-                              child: TextButton(
-                                onPressed: isLoading ? null : onOpenOAuth,
-                                child: Text(
-                                  'Другие способы входа (OAuth)',
-                                  style: EcoTypography.labelSmall.copyWith(
-                                    color: EcoColors.inkSecondary,
+                              padding: const .symmetric(horizontal: 24),
+                              child: Column(
+                                crossAxisAlignment: .stretch,
+                                children: [
+                                  _OAuthProviderButton(
+                                    label: 'Войти через Яндекс ID',
+                                    enabled: consentAccepted && !anyLoading,
+                                    isLoading: loadingProvider == .yandex,
+                                    bgColor: EcoColors.inkPrimary,
+                                    fgColor: EcoColors.surfacePrimary,
+                                    side: .none,
+                                    onPressed: () => onSelectProvider(.yandex),
                                   ),
-                                ),
+                                  const SizedBox(height: 8),
+                                  _OAuthProviderButton(
+                                    label: 'Войти через VK ID',
+                                    enabled: consentAccepted && !anyLoading,
+                                    isLoading: loadingProvider == .vk,
+                                    bgColor: EcoColors.surfacePrimary,
+                                    fgColor: EcoColors.inkPrimary,
+                                    side: const BorderSide(
+                                      color: EcoColors.inkPrimary,
+                                      width: 1.5,
+                                    ),
+                                    onPressed: () => onSelectProvider(.vk),
+                                  ),
+                                  const SizedBox(height: 8),
+                                  _OAuthProviderButton(
+                                    label: 'Войти через Google (Лаб. режим)',
+                                    enabled: consentAccepted && !anyLoading,
+                                    isLoading: loadingProvider == .google,
+                                    bgColor: EcoColors.surfaceSubtle,
+                                    fgColor: EcoColors.inkPrimary,
+                                    side: const BorderSide(
+                                      color: EcoColors.borderMuted,
+                                      width: 1.5,
+                                    ),
+                                    onPressed: () => onSelectProvider(.google),
+                                  ),
+                                ],
                               ),
                             ),
                           ],
@@ -807,80 +795,6 @@ final class const _WireframeActionButton({
       ),
     );
   }
-}
-
-final class const _OAuthProvidersSheet({
-  required final bool consentAccepted,
-  required final ValueChanged<AuthProviderType> onSelectProvider,
-}) extends StatelessWidget {
-  @override
-  Widget build(BuildContext context) => BlocBuilder<AuthBloc, AuthState>(
-    builder: (context, authState) {
-      final loadingProvider = switch (authState) {
-        AuthAuthenticating(:final activeProvider) => activeProvider,
-        _ => null,
-      };
-      final anyLoading = authState is AuthAuthenticating;
-
-      return SafeArea(
-        child: Padding(
-          padding: const .fromLTRB(20, 16, 20, 24),
-          child: Column(
-            mainAxisSize: .min,
-            crossAxisAlignment: .stretch,
-            children: [
-              const Text(
-                'Вход через OAuth PKCE',
-                style: EcoTypography.titleMedium,
-              ),
-              const SizedBox(height: 6),
-              Text(
-                consentAccepted
-                    ? 'Выберите провайдера для входа на сервер:'
-                    : 'Сначала отметьте согласие на обработку данных 152-ФЗ.',
-                style: EcoTypography.bodyMedium.copyWith(
-                  color: EcoColors.inkSecondary,
-                ),
-              ),
-              const SizedBox(height: 16),
-              _OAuthProviderButton(
-                label: 'Войти через Яндекс ID',
-                enabled: consentAccepted && !anyLoading,
-                isLoading: loadingProvider == .yandex,
-                bgColor: EcoColors.inkPrimary,
-                fgColor: EcoColors.surfacePrimary,
-                side: .none,
-                onPressed: () => onSelectProvider(.yandex),
-              ),
-              const SizedBox(height: 10),
-              _OAuthProviderButton(
-                label: 'Войти через VK ID',
-                enabled: consentAccepted && !anyLoading,
-                isLoading: loadingProvider == .vk,
-                bgColor: EcoColors.surfacePrimary,
-                fgColor: EcoColors.inkPrimary,
-                side: const BorderSide(color: EcoColors.inkPrimary, width: 1.5),
-                onPressed: () => onSelectProvider(.vk),
-              ),
-              const SizedBox(height: 10),
-              _OAuthProviderButton(
-                label: 'Войти через Google (Лаб. режим)',
-                enabled: consentAccepted && !anyLoading,
-                isLoading: loadingProvider == .google,
-                bgColor: EcoColors.surfaceSubtle,
-                fgColor: EcoColors.inkPrimary,
-                side: const BorderSide(
-                  color: EcoColors.borderMuted,
-                  width: 1.5,
-                ),
-                onPressed: () => onSelectProvider(.google),
-              ),
-            ],
-          ),
-        ),
-      );
-    },
-  );
 }
 
 final class const _OAuthProviderButton({

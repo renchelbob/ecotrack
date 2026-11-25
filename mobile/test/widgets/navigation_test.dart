@@ -126,19 +126,6 @@ final class _StubAuthRepo() implements AuthRepository {
   );
 
   @override
-  Future<Result<AuthSession, AppError>> signInLocally({
-    required ConsentScopeObject consentScope,
-  }) async => Ok(
-    AuthSession(
-      accessToken: 'local-preview-access-token',
-      refreshToken: 'local-preview-refresh-token-ecotrack',
-      expiresInSeconds: 86400,
-      isForeignProviderLabMode: false,
-      user: _sampleProfile(),
-    ),
-  );
-
-  @override
   Future<Result<UserProfile, AppError>> submitGoogleFormalPhone(
     String phoneE164,
   ) async => Ok(_sampleProfile());
@@ -406,7 +393,7 @@ void main() {
 
   group('AppRouter & 5-Tab Shell Navigation Tests', () {
     testWidgets(
-      'Onboarding Step 3 renders 152-FZ consent gate, enables Начать when checked, and shows OAuth sheet',
+      'Onboarding Step 3 renders in-place OAuth buttons disabled until 152-FZ checked',
       (tester) async {
         tester.view.physicalSize = const Size(412, 915);
         tester.view.devicePixelRatio = 1.0;
@@ -429,25 +416,30 @@ void main() {
           find.text('Я согласен на обработку персональных данных'),
           findsOneWidget,
         );
-        final checkboxFinder = find.byType(Checkbox);
-        expect(tester.widget<Checkbox>(checkboxFinder).value, isFalse);
-
-        final startBtnFinder = find.widgetWithText(OutlinedButton, 'Начать');
-        expect(tester.widget<OutlinedButton>(startBtnFinder).onPressed, isNull);
-
-        await tester.tap(checkboxFinder);
-        await tester.pump();
-        expect(
-          tester.widget<OutlinedButton>(startBtnFinder).onPressed,
-          isNotNull,
-        );
-
-        await tester.tap(find.text('Другие способы входа (OAuth)'));
-        await tester.pumpAndSettle();
-
         expect(find.text('Войти через Яндекс ID'), findsOneWidget);
         expect(find.text('Войти через VK ID'), findsOneWidget);
         expect(find.text('Войти через Google (Лаб. режим)'), findsOneWidget);
+
+        final checkboxFinder = find.byType(Checkbox);
+        expect(tester.widget<Checkbox>(checkboxFinder).value, isFalse);
+
+        final yandexBtnFinder = find.widgetWithText(
+          OutlinedButton,
+          'Войти через Яндекс ID',
+        );
+        expect(
+          tester.widget<OutlinedButton>(yandexBtnFinder).onPressed,
+          isNull,
+        );
+
+        await tester.ensureVisible(checkboxFinder);
+        await tester.pump();
+        await tester.tap(checkboxFinder);
+        await tester.pump();
+        expect(
+          tester.widget<OutlinedButton>(yandexBtnFinder).onPressed,
+          isNotNull,
+        );
 
         await tester.pumpWidget(const SizedBox.shrink());
         await tester.runAsync(authBloc.close);

@@ -19,9 +19,6 @@ final class AuthRepositoryImpl(
 ) implements AuthRepository, AuthSessionNotifier {
   static const String _onboardingSeenKey = 'ecotrack_onboarding_seen';
   static const String _policyVersion = '1.0.0-2026';
-  static const String localPreviewAccessToken = 'local-preview-access-token';
-  static const String localPreviewRefreshToken =
-      'local-preview-refresh-token-ecotrack';
 
   final StreamController<void> _sessionEndedController =
       StreamController<void>.broadcast();
@@ -43,18 +40,6 @@ final class AuthRepositoryImpl(
     }
 
     final cachedProfile = await _profileRepo.getCachedProfileSnapshot();
-
-    if (accessToken == localPreviewAccessToken && cachedProfile != null) {
-      return Ok(
-        AuthSession(
-          accessToken: accessToken,
-          refreshToken: refreshToken,
-          expiresInSeconds: 86400,
-          isForeignProviderLabMode: false,
-          user: cachedProfile,
-        ),
-      );
-    }
 
     final profileRes = await _dioClient.get<UserProfile>(
       '/api/v1/users/me',
@@ -164,70 +149,6 @@ final class AuthRepositoryImpl(
   }
 
   @override
-  Future<Result<AuthSession, AppError>> signInLocally({
-    required ConsentScopeObject consentScope,
-  }) async {
-    if (!consentScope.personalData152fz) {
-      return Err(AppError.fromCode('FZ152_CONSENT_REQUIRED'));
-    }
-
-    final nowIso = DateTime.now().toUtc().toIso8601String();
-    final localProfile = UserProfile(
-      id: 'usr-local-preview',
-      email: 'preview@ecotrack.local',
-      displayName: 'Артём Волков',
-      friendCode: 'ECO-4219-DEMO',
-      requiresFormalPhone: false,
-      pointsBalance: 450,
-      lifetimePointsEarned: 1280,
-      lifetimeCo2SavedGrams: 18450,
-      currentStreakDays: 6,
-      longestStreakDays: 14,
-      streakFreezeCount: 2,
-      dailyCo2GoalGrams: 1500,
-      isGpsTrackingEnabled: consentScope.backgroundGeolocation,
-      isStatsVisibleToFriends: true,
-      is152fzConsentActive: true,
-      mascot: const MascotVisualState(
-        mood: .happy,
-        dailyGoalProgressRatio: 0.72,
-      ),
-      personalVehicle: UserVehicle(
-        id: 'veh-local-1',
-        vehicleName: 'Lada Vesta',
-        fuel: .petrol95,
-        consumptionPer100km: 7.8,
-        fuelEmissionFactorGPerUnit: 2330.0,
-        computedCo2GPerKm: 181.74,
-        computedCo2GPerMeter: 0.18174,
-        updatedAt: nowIso,
-      ),
-      createdAt: nowIso,
-    );
-
-    await _tokenStore.saveTokens(
-      accessToken: localPreviewAccessToken,
-      refreshToken: localPreviewRefreshToken,
-    );
-    await _profileRepo.cacheProfile(
-      localProfile,
-      authProvider: .yandex,
-      isForeignLabMode: false,
-    );
-    await markOnboardingStepSeen();
-
-    return Ok(
-      AuthSession(
-        accessToken: localPreviewAccessToken,
-        refreshToken: localPreviewRefreshToken,
-        expiresInSeconds: 86400,
-        isForeignProviderLabMode: false,
-        user: localProfile,
-      ),
-    );
-  }
-
-  @override
   Future<Result<UserProfile, AppError>> submitGoogleFormalPhone(
     String phoneE164,
   ) async {
@@ -291,17 +212,14 @@ final class AuthRepositoryImpl(
 
   @override
   Future<Result<void, AppError>> logout() async {
-    final accessToken = await _tokenStore.getAccessToken();
     final refreshToken = await _tokenStore.getRefreshToken();
-    if (accessToken != localPreviewAccessToken) {
-      await _pushProvider.unregisterCurrentToken();
-      if (refreshToken != null && refreshToken.length >= 32) {
-        await _dioClient.post<void>(
-          '/api/v1/auth/logout',
-          data: {'refresh_token': refreshToken},
-          parser: (_) {},
-        );
-      }
+    await _pushProvider.unregisterCurrentToken();
+    if (refreshToken != null && refreshToken.length >= 32) {
+      await _dioClient.post<void>(
+        '/api/v1/auth/logout',
+        data: {'refresh_token': refreshToken},
+        parser: (_) {},
+      );
     }
     await _clearLocalSession();
     if (!_sessionEndedController.isClosed) {

@@ -188,10 +188,6 @@ abstract interface class const AuthRepository() {
     required ConsentScopeObject consentScope,
   });
 
-  Future<Result<AuthSession, AppError>> signInLocally({
-    required ConsentScopeObject consentScope,
-  });
-
   Future<Result<UserProfile, AppError>> submitGoogleFormalPhone(
     String phoneE164,
   );
