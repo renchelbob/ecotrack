@@ -132,12 +132,11 @@ final class const _HomeReadyBody({
                   expanded: co2Expanded,
                   onToggle: onToggleCo2,
                 ),
-                const SizedBox(height: 20),
-                const _AddRouteCtaButton(),
-                const SizedBox(height: 112),
               ],
             ),
           ),
+          const SizedBox(height: 16),
+          const _BottomArchCtaSection(),
         ],
       ),
     );
@@ -250,7 +249,7 @@ final class const _BalancePill({
               ),
               const SizedBox(width: 8),
               Text(
-                '★ $pointsBalance',
+                '$pointsBalance',
                 style: EcoTypography.titleMedium.copyWith(fontSize: 16),
               ),
             ],
@@ -752,25 +751,62 @@ final class const _SmallMetricCol({
   );
 }
 
+final class const _BottomArchCtaSection() extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) => const CustomPaint(
+    painter: _BottomDomeBackdropPainter(),
+    child: Padding(
+      padding: .fromLTRB(16, 28, 16, 112),
+      child: _AddRouteCtaButton(),
+    ),
+  );
+}
+
+final class const _BottomDomeBackdropPainter() extends CustomPainter {
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()..color = EcoColors.surfaceSubtle;
+    final path = Path()
+      ..moveTo(0, 44)
+      ..quadraticBezierTo(size.width / 2, -16, size.width, 44)
+      ..lineTo(size.width, size.height)
+      ..lineTo(0, size.height)
+      ..close();
+    canvas.drawPath(path, paint);
+  }
+
+  @override
+  bool shouldRepaint(covariant _BottomDomeBackdropPainter oldDelegate) => false;
+}
+
 final class const _AddRouteCtaButton() extends StatelessWidget {
   @override
   Widget build(BuildContext context) => Center(
     child: Tooltip(
-      message: 'Открыть калькулятор активности',
-      child: ConstrainedBox(
-        constraints: const BoxConstraints(minWidth: 76, minHeight: 48),
-        child: Material(
-          color: const Color(0xFFB8B8B8),
-          borderRadius: const .all(.circular(28)),
-          child: InkWell(
-            onTap: () => context.go('/map'),
-            borderRadius: const .all(.circular(28)),
-            child: const Padding(
-              padding: .symmetric(horizontal: 24, vertical: 10),
-              child: Icon(
-                LucideIcons.plus,
-                size: 26,
-                color: EcoColors.inkPrimary,
+      message: 'Отметить маршрут на карте',
+      child: DecoratedBox(
+        decoration: const BoxDecoration(
+          color: EcoColors.surfaceCard,
+          borderRadius: .all(.circular(999)),
+        ),
+        child: Padding(
+          padding: const .all(5),
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(minWidth: 76, minHeight: 48),
+            child: Material(
+              color: const Color(0xFFB8B8B8),
+              borderRadius: const .all(.circular(28)),
+              child: InkWell(
+                onTap: () => context.go('/map?mode=routes'),
+                borderRadius: const .all(.circular(28)),
+                child: const Padding(
+                  padding: .symmetric(horizontal: 24, vertical: 10),
+                  child: Icon(
+                    LucideIcons.plus,
+                    size: 26,
+                    color: EcoColors.inkPrimary,
+                  ),
+                ),
               ),
             ),
           ),

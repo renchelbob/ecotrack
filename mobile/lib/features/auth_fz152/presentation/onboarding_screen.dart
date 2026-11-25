@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:ecotrack_mobile/core/error/eco_error_banner_presenter.dart';
 import 'package:ecotrack_mobile/core/theme/eco_colors.dart';
@@ -68,6 +69,16 @@ final class _OnboardingScreenState() extends State<OnboardingScreen> {
     }
   }
 
+  void _jumpToStep3() {
+    if (_pageController.hasClients) {
+      _pageController.animateToPage(
+        2,
+        duration: const Duration(milliseconds: 260),
+        curve: Curves.easeOut,
+      );
+    }
+  }
+
   Future<void> _requestStepAccess() async {
     final callback = widget.onRequestStepsPermission;
     final granted = callback == null || await callback();
@@ -120,6 +131,7 @@ final class _OnboardingScreenState() extends State<OnboardingScreen> {
           _OnboardingStepOne(
             mascotBuilder: widget.mascotBuilder,
             onNext: _nextPage,
+            onSkip: _jumpToStep3,
           ),
           _OnboardingStepTwo(
             mascotBuilder: widget.mascotBuilder,
@@ -128,6 +140,7 @@ final class _OnboardingScreenState() extends State<OnboardingScreen> {
             onRequestSteps: () => unawaited(_requestStepAccess()),
             onGpsChanged: (val) => unawaited(_toggleGps(val)),
             onNext: _nextPage,
+            onSkip: _jumpToStep3,
           ),
           _OnboardingStepThree(
             mascotBuilder: widget.mascotBuilder,
@@ -169,6 +182,7 @@ final class const _MascotArt({
 final class const _OnboardingStepOne({
   required final MascotWidgetBuilder? mascotBuilder,
   required final VoidCallback onNext,
+  required final VoidCallback onSkip,
 }) extends StatelessWidget {
   @override
   Widget build(BuildContext context) => ColoredBox(
@@ -198,17 +212,24 @@ final class const _OnboardingStepOne({
         ),
         SafeArea(
           child: Padding(
-            padding: const .fromLTRB(28, 28, 28, 24),
+            padding: const .fromLTRB(28, 20, 20, 24),
             child: Column(
               crossAxisAlignment: .stretch,
               children: [
-                Text(
-                  'EcoTrack',
-                  style: EcoTypography.displayHero.copyWith(
-                    fontSize: 44,
-                    fontWeight: .w400,
-                    letterSpacing: -0.8,
-                  ),
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        'EcoTrack',
+                        style: EcoTypography.displayHero.copyWith(
+                          fontSize: 44,
+                          fontWeight: .w400,
+                          letterSpacing: -0.8,
+                        ),
+                      ),
+                    ),
+                    _SkipStepButton(onPressed: onSkip),
+                  ],
                 ),
                 const Spacer(flex: 2),
                 Align(
@@ -224,11 +245,14 @@ final class const _OnboardingStepOne({
                 const SizedBox(height: 24),
                 const _OnboardingDots(activeIndex: 0),
                 const SizedBox(height: 22),
-                _WireframeActionButton(
-                  label: 'Продолжить',
-                  enabled: true,
-                  isLoading: false,
-                  onPressed: onNext,
+                Padding(
+                  padding: const .only(right: 8),
+                  child: _WireframeActionButton(
+                    label: 'Далее',
+                    enabled: true,
+                    isLoading: false,
+                    onPressed: onNext,
+                  ),
                 ),
               ],
             ),
@@ -291,6 +315,7 @@ final class const _OnboardingStepTwo({
   required final VoidCallback onRequestSteps,
   required final ValueChanged<bool> onGpsChanged,
   required final VoidCallback onNext,
+  required final VoidCallback onSkip,
 }) extends StatelessWidget {
   @override
   Widget build(BuildContext context) => ColoredBox(
@@ -304,13 +329,13 @@ final class const _OnboardingStepTwo({
             child: _MascotArt(
               mascotBuilder: mascotBuilder,
               moodWire: 'neutral',
-              size: 256,
+              size: 240,
             ),
           ),
         ),
         Column(
           children: [
-            const SizedBox(height: 220),
+            const SizedBox(height: 204),
             Expanded(
               child: DecoratedBox(
                 decoration: const BoxDecoration(
@@ -319,56 +344,60 @@ final class const _OnboardingStepTwo({
                 ),
                 child: SafeArea(
                   top: false,
-                  child: Padding(
-                    padding: const .only(top: 28, bottom: 24),
-                    child: Column(
-                      crossAxisAlignment: .stretch,
-                      children: [
-                        Padding(
-                          padding: const .symmetric(horizontal: 24),
-                          child: Text(
-                            'Отслеживайте экономию\nCO₂ каждый день',
-                            textAlign: .right,
-                            style: EcoTypography.displayHero.copyWith(
-                              fontSize: 28,
-                              fontWeight: .w400,
-                              height: 1.18,
-                            ),
+                  child: LayoutBuilder(
+                    builder: (context, constraints) => SingleChildScrollView(
+                      padding: const .fromLTRB(24, 28, 24, 24),
+                      child: ConstrainedBox(
+                        constraints: BoxConstraints(
+                          minHeight: math.max(0.0, constraints.maxHeight - 52),
+                        ),
+                        child: IntrinsicHeight(
+                          child: Column(
+                            crossAxisAlignment: .stretch,
+                            children: [
+                              Text(
+                                'Точный учёт\nбез ручного ввода',
+                                textAlign: .right,
+                                style: EcoTypography.displayHero.copyWith(
+                                  fontSize: 26,
+                                  fontWeight: .w400,
+                                  height: 1.18,
+                                ),
+                              ),
+                              const SizedBox(height: 10),
+                              Text(
+                                'Шаги считываются автоматически через системные датчики здоровья. Если включить запись GPS-маршрута, вы сможете отмечать, вместо какого транспорта прошли пешком, получая 100% коэффициент точности.',
+                                textAlign: .right,
+                                style: EcoTypography.bodyMedium.copyWith(
+                                  color: EcoColors.inkSecondary,
+                                  fontSize: 13,
+                                  height: 1.35,
+                                ),
+                              ),
+                              const SizedBox(height: 18),
+                              _StepSensorAccessCard(
+                                stepsGranted: stepsGranted,
+                                onRequestSteps: onRequestSteps,
+                              ),
+                              const SizedBox(height: 12),
+                              _GpsConsentCard(
+                                gpsEnabled: gpsEnabled,
+                                onGpsChanged: onGpsChanged,
+                              ),
+                              const Spacer(),
+                              const SizedBox(height: 18),
+                              const _OnboardingDots(activeIndex: 1),
+                              const SizedBox(height: 18),
+                              _WireframeActionButton(
+                                label: 'Далее',
+                                enabled: true,
+                                isLoading: false,
+                                onPressed: onNext,
+                              ),
+                            ],
                           ),
                         ),
-                        const Spacer(),
-                        _EdgeAttachedPill(
-                          alignRight: true,
-                          horizontalMargin: 36,
-                          text: 'Чтобы фиксировать ваш вклад и переводить шаги в сэкономленный CO₂, свяжи приложение с шагомером или фитнес-браслетом',
-                          statusText: stepsGranted
-                              ? 'Доступ к шагомеру разрешён'
-                              : null,
-                          onTap: onRequestSteps,
-                        ),
-                        const SizedBox(height: 22),
-                        _EdgeAttachedPill(
-                          alignRight: false,
-                          horizontalMargin: 44,
-                          text: 'Вноси свои поездки, а алгоритм посчитает, сколько выбросов CO₂ удалось избежать',
-                          statusText: gpsEnabled
-                              ? 'GPS-трек маршрута включён'
-                              : null,
-                          onTap: () => onGpsChanged(!gpsEnabled),
-                        ),
-                        const Spacer(),
-                        const _OnboardingDots(activeIndex: 1),
-                        const SizedBox(height: 22),
-                        Padding(
-                          padding: const .symmetric(horizontal: 28),
-                          child: _WireframeActionButton(
-                            label: 'Продолжить',
-                            enabled: true,
-                            isLoading: false,
-                            onPressed: onNext,
-                          ),
-                        ),
-                      ],
+                      ),
                     ),
                   ),
                 ),
@@ -376,7 +405,115 @@ final class const _OnboardingStepTwo({
             ),
           ],
         ),
+        SafeArea(
+          child: Align(
+            alignment: .topRight,
+            child: Padding(
+              padding: const .only(top: 12, right: 16),
+              child: _SkipStepButton(onPressed: onSkip),
+            ),
+          ),
+        ),
       ],
+    ),
+  );
+}
+
+final class const _SkipStepButton({required final VoidCallback onPressed})
+    extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) => ConstrainedBox(
+    constraints: const BoxConstraints(minWidth: 48, minHeight: 48),
+    child: TextButton(
+      onPressed: onPressed,
+      child: Text(
+        'Пропустить',
+        style: EcoTypography.bodyMedium.copyWith(
+          color: EcoColors.inkPrimary,
+          fontWeight: .w600,
+        ),
+      ),
+    ),
+  );
+}
+
+final class const _StepSensorAccessCard({
+  required final bool stepsGranted,
+  required final VoidCallback onRequestSteps,
+}) extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) => DecoratedBox(
+    decoration: const BoxDecoration(
+      color: EcoColors.surfaceSubtle,
+      borderRadius: .all(.circular(20)),
+      border: .fromBorderSide(
+        BorderSide(color: EcoColors.borderMuted, width: 1.5),
+      ),
+    ),
+    child: Padding(
+      padding: const .all(14),
+      child: Column(
+        crossAxisAlignment: .stretch,
+        children: [
+          const Text(
+            'Доступ к датчику шагов (обязательно для начисления ★)',
+            style: EcoTypography.bodyLarge,
+          ),
+          const SizedBox(height: 10),
+          OutlinedButton.icon(
+            onPressed: onRequestSteps,
+            icon: Icon(
+              stepsGranted ? LucideIcons.check : LucideIcons.footprints,
+              size: 18,
+            ),
+            label: Text(stepsGranted ? 'Доступ разрешён' : 'Запросить доступ'),
+          ),
+        ],
+      ),
+    ),
+  );
+}
+
+final class const _GpsConsentCard({
+  required final bool gpsEnabled,
+  required final ValueChanged<bool> onGpsChanged,
+}) extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) => DecoratedBox(
+    decoration: const BoxDecoration(
+      color: EcoColors.surfaceSubtle,
+      borderRadius: .all(.circular(20)),
+      border: .fromBorderSide(
+        BorderSide(color: EcoColors.borderMuted, width: 1.5),
+      ),
+    ),
+    child: Padding(
+      padding: const .all(14),
+      child: Column(
+        crossAxisAlignment: .stretch,
+        children: [
+          Row(
+            children: [
+              const Expanded(
+                child: Text(
+                  'Фоновая запись маршрута GPS (опционально)',
+                  style: EcoTypography.bodyLarge,
+                ),
+              ),
+              const SizedBox(width: 8),
+              Switch(value: gpsEnabled, onChanged: onGpsChanged),
+            ],
+          ),
+          const SizedBox(height: 4),
+          Text(
+            'Если GPS выключен, приложение автоматически считает эковклад по базовой формуле (80% × 0.7).',
+            style: EcoTypography.labelSmall.copyWith(
+              color: EcoColors.inkSecondary,
+              fontWeight: .w400,
+            ),
+          ),
+        ],
+      ),
     ),
   );
 }
@@ -569,28 +706,93 @@ final class const _StepThreeMascotCircle({
             ),
           ),
           const Positioned(
-            right: 20,
-            bottom: 24,
-            child: DecoratedBox(
-              decoration: BoxDecoration(
-                color: EcoColors.surfacePrimary,
-                borderRadius: .all(.circular(8)),
-                border: .fromBorderSide(
-                  BorderSide(color: EcoColors.inkPrimary, width: 1.2),
+            right: 16,
+            bottom: 20,
+            child: _WireframePercentGiftBox(),
+          ),
+        ],
+      ),
+    ),
+  );
+}
+
+final class const _WireframePercentGiftBox() extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) => SizedBox(
+    width: 44,
+    height: 46,
+    child: Stack(
+      alignment: .bottomCenter,
+      children: [
+        const Positioned(
+          top: 0,
+          child: Row(
+            mainAxisSize: .min,
+            children: [
+              DecoratedBox(
+                decoration: BoxDecoration(
+                  color: EcoColors.surfacePrimary,
+                  borderRadius: .all(.circular(6)),
+                  border: .fromBorderSide(
+                    BorderSide(color: EcoColors.inkPrimary, width: 1.4),
+                  ),
                 ),
+                child: SizedBox(width: 12, height: 9),
               ),
-              child: Padding(
-                padding: .all(5),
-                child: Icon(
-                  LucideIcons.gift,
-                  size: 20,
-                  color: EcoColors.inkPrimary,
+              DecoratedBox(
+                decoration: BoxDecoration(
+                  color: EcoColors.surfacePrimary,
+                  borderRadius: .all(.circular(6)),
+                  border: .fromBorderSide(
+                    BorderSide(color: EcoColors.inkPrimary, width: 1.4),
+                  ),
+                ),
+                child: SizedBox(width: 12, height: 9),
+              ),
+            ],
+          ),
+        ),
+        const Positioned(
+          top: 7,
+          left: 0,
+          right: 0,
+          height: 10,
+          child: DecoratedBox(
+            decoration: BoxDecoration(
+              color: EcoColors.surfacePrimary,
+              borderRadius: .all(.circular(4)),
+              border: .fromBorderSide(
+                BorderSide(color: EcoColors.inkPrimary, width: 1.4),
+              ),
+            ),
+          ),
+        ),
+        Positioned(
+          top: 15,
+          left: 3,
+          right: 3,
+          bottom: 0,
+          child: DecoratedBox(
+            decoration: const BoxDecoration(
+              color: EcoColors.surfacePrimary,
+              borderRadius: .vertical(bottom: .circular(6)),
+              border: .fromBorderSide(
+                BorderSide(color: EcoColors.inkPrimary, width: 1.4),
+              ),
+            ),
+            child: Center(
+              child: Text(
+                '%',
+                style: EcoTypography.titleMedium.copyWith(
+                  fontSize: 16,
+                  fontWeight: .w800,
+                  height: 1.0,
                 ),
               ),
             ),
           ),
-        ],
-      ),
+        ),
+      ],
     ),
   );
 }
@@ -599,8 +801,6 @@ final class const _EdgeAttachedPill({
   required final bool alignRight,
   required final double horizontalMargin,
   required final String text,
-  final String? statusText,
-  final VoidCallback? onTap,
 }) extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
@@ -615,47 +815,17 @@ final class const _EdgeAttachedPill({
       child: Material(
         color: const Color(0xFFD9D9D9),
         borderRadius: radius,
-        child: InkWell(
-          onTap: onTap,
-          borderRadius: radius,
-          child: Padding(
-            padding: const .symmetric(horizontal: 24, vertical: 18),
-            child: Column(
-              mainAxisSize: .min,
-              children: [
-                Text(
-                  text,
-                  textAlign: .center,
-                  style: const TextStyle(
-                    fontFamily: 'Inter',
-                    fontSize: 15,
-                    fontWeight: .w400,
-                    height: 1.35,
-                    color: EcoColors.inkPrimary,
-                  ),
-                ),
-                if (statusText case final String status) ...[
-                  const SizedBox(height: 6),
-                  Row(
-                    mainAxisSize: .min,
-                    children: [
-                      const Icon(
-                        LucideIcons.check,
-                        size: 15,
-                        color: EcoColors.inkPrimary,
-                      ),
-                      const SizedBox(width: 4),
-                      Text(
-                        status,
-                        style: EcoTypography.labelSmall.copyWith(
-                          color: EcoColors.inkPrimary,
-                          fontWeight: .w600,
-                        ),
-                      ),
-                    ],
-                  ),
-                ],
-              ],
+        child: Padding(
+          padding: const .symmetric(horizontal: 24, vertical: 18),
+          child: Text(
+            text,
+            textAlign: .center,
+            style: const TextStyle(
+              fontFamily: 'Inter',
+              fontSize: 15,
+              fontWeight: .w400,
+              height: 1.35,
+              color: EcoColors.inkPrimary,
             ),
           ),
         ),

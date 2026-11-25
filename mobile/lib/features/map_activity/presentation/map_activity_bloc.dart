@@ -7,7 +7,6 @@ import 'package:ecotrack_mobile/features/profile_social/domain/profile_models.da
 import 'package:flutter_bloc/flutter_bloc.dart';
 
 enum MapScreenMode() {
-  calculator,
   myRoutes,
   recyclingMap,
 }
@@ -15,7 +14,7 @@ enum MapScreenMode() {
 sealed class const MapActivityEvent();
 
 final class const MapStarted({
-  final MapScreenMode initialMode = .calculator,
+  final MapScreenMode initialMode = .myRoutes,
   final String? initialDateIso,
 }) extends MapActivityEvent;
 
@@ -65,12 +64,6 @@ final class const MapWastePointSuggested(final SuggestWastePointRequest request)
 final class const MapLocateMeRequested() extends MapActivityEvent;
 
 final class const MapFeedbackCleared() extends MapActivityEvent;
-
-final class const MapCalculatorLogged({
-  required final String activityLabel,
-  required final double distanceKm,
-  required final int previewCo2Grams,
-}) extends MapActivityEvent;
 
 final class const _MapPositionObserved(
   final ({double lat, double lon, double accuracy}) pos,
@@ -194,7 +187,6 @@ final class MapActivityBloc(
     on<MapWastePointSuggested>(_onWastePointSuggested);
     on<MapLocateMeRequested>(_onLocateMe);
     on<MapFeedbackCleared>(_onFeedbackCleared);
-    on<MapCalculatorLogged>(_onCalculatorLogged);
     on<_MapPositionObserved>(_onPositionObserved);
     on<_MapSummaryObserved>(_onSummaryObserved);
     on<_MapProfileObserved>(_onProfileObserved);
@@ -740,44 +732,6 @@ final class MapActivityBloc(
           ),
         ),
       );
-    }
-  }
-
-  Future<void> _onCalculatorLogged(
-    MapCalculatorLogged event,
-    Emitter<MapActivityState> emit,
-  ) async {
-    if (state case final MapActivityReady ready) {
-      emit(ready.copyWith(isSubmitting: true, clearFeedback: true));
-      final detail = ready.routeView.detail;
-      final prevSteps = detail?.summary.rawSensorSteps ?? 0;
-      final strideM = (detail?.summary.strideLengthCm ?? 74) / 100.0;
-      final addedSteps = ((event.distanceKm * 1000.0) / strideM).round();
-      final res = await _mapRepo.syncDailySteps(
-        activityDate: ready.routeView.selectedDateIso,
-        rawSensorSteps: prevSteps + addedSteps,
-        manualRefresh: true,
-      );
-      if (state case final MapActivityReady current) {
-        switch (res) {
-          case Ok():
-            final refreshed = await _mapRepo.getDailyActivityDetail(
-              current.routeView.selectedDateIso,
-            );
-            emit(
-              current.copyWith(
-                isSubmitting: false,
-                routeView: current.routeView.copyWith(
-                  detail: refreshed.valueOrNull ?? current.routeView.detail,
-                ),
-                feedbackMessage:
-                    '${event.activityLabel} (${event.distanceKm.toStringAsFixed(1)} км): +${event.previewCo2Grams} г CO₂',
-              ),
-            );
-          case Err(:final error):
-            emit(current.copyWith(isSubmitting: false, bannerError: error));
-        }
-      }
     }
   }
 

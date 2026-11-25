@@ -19,8 +19,8 @@ final class ProfileRepositoryImpl(
   final TokenStore _tokenStore,
   final OutboxDispatcher _outbox,
 ) implements ProfileRepository {
-  late final ProfileSqliteDao _profileDao = ProfileSqliteDao(_db);
-  late final VehicleSqliteDao _vehicleDao = VehicleSqliteDao(_db);
+  late final ProfileSqliteDao _profileDao = ProfileSqliteDao(_db, _outbox);
+  late final VehicleSqliteDao _vehicleDao = VehicleSqliteDao(_db, _outbox);
   final StreamController<UserProfile> _profileController =
       StreamController<UserProfile>.broadcast();
 
@@ -376,11 +376,15 @@ final class ProfileRepositoryImpl(
     if (confirmationPhrase != 'DELETE_MY_DATA_152FZ') {
       return Err(AppError.fromCode('FZ152_INVALID_CONFIRMATION_PHRASE'));
     }
+    final normalizedReason = reason.trim();
+    if (normalizedReason.length < 3 || normalizedReason.length > 128) {
+      return Err(AppError.fromCode('VALIDATION_ERROR'));
+    }
 
     final result = await _dioClient.delete<AccountDeletionReceipt>(
       '/api/v1/users/me',
       data: {
-        'deletion_reason': reason.trim(),
+        'deletion_reason': normalizedReason,
         'confirmation_phrase': confirmationPhrase,
       },
       parser: (data) => _parseOrThrow(data, AccountDeletionReceipt.fromJson),

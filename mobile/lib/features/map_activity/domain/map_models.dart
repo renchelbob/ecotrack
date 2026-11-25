@@ -50,7 +50,7 @@ enum TrackPointMotionClass(final String wireName) {
 }
 
 enum WasteFractionCode(final String wireName, final String labelRu) {
-  plastic('plastic', 'Пластики'),
+  plastic('plastic', 'Пластик'),
   glass('glass', 'Стекло'),
   paper('paper', 'Бумага'),
   metal('metal', 'Металл'),

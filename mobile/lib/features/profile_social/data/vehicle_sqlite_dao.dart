@@ -1,10 +1,14 @@
 import 'dart:convert';
 
+import 'package:ecotrack_mobile/core/database/outbox_dispatcher.dart';
 import 'package:ecotrack_mobile/core/database/sqlite_database.dart';
 import 'package:ecotrack_mobile/features/profile_social/domain/profile_models.dart';
 import 'package:sqflite/sqflite.dart';
 
-final class VehicleSqliteDao(final SqliteDatabase _db) {
+final class VehicleSqliteDao(
+  final SqliteDatabase _db,
+  final OutboxDispatcher _outbox,
+) {
   Future<UserVehicle?> getCachedVehicle() async {
     final rows = await _db.database.query('local_user_vehicle', limit: 1);
     if (rows.isEmpty) {
@@ -33,31 +37,21 @@ final class VehicleSqliteDao(final SqliteDatabase _db) {
     required String idempotencyKey,
   }) async {
     final nowMs = DateTime.now().millisecondsSinceEpoch;
-    await _db.database.transaction((txn) async {
-      await _upsertVehicleTxn(
-        txn,
-        userId,
-        vehicle,
-        isDirty: true,
-        nowMs: nowMs,
-      );
-      await txn.insert('offline_mutation_outbox', {
-        'idempotency_key': idempotencyKey,
-        'operation_type': 'update_user_vehicle',
-        'http_method': 'PUT',
-        'endpoint_path': '/api/v1/users/me/vehicle',
-        'payload_json': jsonEncode({
-          'vehicle_name': vehicle.vehicleName,
-          'fuel': vehicle.fuel.wireName,
-          'consumption_per_100km': vehicle.consumptionPer100km,
-        }),
-        'retry_count': 0,
-        'max_retries': 12,
-        'next_retry_at_ms': nowMs,
-        'status': 'pending',
-        'created_at_ms': nowMs,
-      }, conflictAlgorithm: ConflictAlgorithm.replace);
-    });
+    await _db.database.transaction(
+      (txn) =>
+          _upsertVehicleTxn(txn, userId, vehicle, isDirty: true, nowMs: nowMs),
+    );
+    await _outbox.enqueue(
+      operationType: 'update_user_vehicle',
+      httpMethod: 'PUT',
+      endpointPath: '/api/v1/users/me/vehicle',
+      payloadJson: jsonEncode({
+        'vehicle_name': vehicle.vehicleName,
+        'fuel': vehicle.fuel.wireName,
+        'consumption_per_100km': vehicle.consumptionPer100km,
+      }),
+      idempotencyKey: idempotencyKey,
+    );
   }
 
   Future<void> deleteLocalVehicle() async {
@@ -67,22 +61,14 @@ final class VehicleSqliteDao(final SqliteDatabase _db) {
   Future<void> deleteVehicleAndEnqueueOutbox({
     required String idempotencyKey,
   }) async {
-    final nowMs = DateTime.now().millisecondsSinceEpoch;
-    await _db.database.transaction((txn) async {
-      await txn.delete('local_user_vehicle');
-      await txn.insert('offline_mutation_outbox', {
-        'idempotency_key': idempotencyKey,
-        'operation_type': 'update_user_vehicle',
-        'http_method': 'DELETE',
-        'endpoint_path': '/api/v1/users/me/vehicle',
-        'payload_json': '{}',
-        'retry_count': 0,
-        'max_retries': 12,
-        'next_retry_at_ms': nowMs,
-        'status': 'pending',
-        'created_at_ms': nowMs,
-      }, conflictAlgorithm: ConflictAlgorithm.replace);
-    });
+    await _db.database.delete('local_user_vehicle');
+    await _outbox.enqueue(
+      operationType: 'update_user_vehicle',
+      httpMethod: 'DELETE',
+      endpointPath: '/api/v1/users/me/vehicle',
+      payloadJson: '{}',
+      idempotencyKey: idempotencyKey,
+    );
   }
 
   Future<List<TransportPresetItem>> getTransportPresets() async {

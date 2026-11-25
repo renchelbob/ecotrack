@@ -1,5 +1,6 @@
 import 'package:dio/dio.dart';
 import 'package:ecotrack_mobile/core/error/app_error.dart';
+import 'package:ecotrack_mobile/core/network/token_refresh_interceptor.dart';
 
 final class ErrorCatalogMapperInterceptor({
   final ErrorCatalogRegistry? catalog,
@@ -11,9 +12,21 @@ final class ErrorCatalogMapperInterceptor({
   @override
   void onError(DioException err, ErrorInterceptorHandler handler) {
     final appError = mapDioException(err);
+    var nextErr = err.copyWith(error: appError);
     switch (appError.clientAction) {
       case ClientErrorAction.forceLogout:
-        onForceLogout?.call();
+        final alreadyNotified =
+            err.requestOptions.extra[TokenRefreshInterceptor
+                .forceLogoutNotifiedKey] ==
+            true;
+        if (!alreadyNotified) {
+          onForceLogout?.call();
+          final nextExtra = Map<String, Object?>.of(err.requestOptions.extra);
+          nextExtra[TokenRefreshInterceptor.forceLogoutNotifiedKey] = true;
+          nextErr = nextErr.copyWith(
+            requestOptions: err.requestOptions.copyWith(extra: nextExtra),
+          );
+        }
       case ClientErrorAction.openPhoneModal:
       case ClientErrorAction.openConsentScreen:
         onGateError?.call(appError);
@@ -24,7 +37,7 @@ final class ErrorCatalogMapperInterceptor({
       case ClientErrorAction.queueRetry:
         break;
     }
-    handler.next(err.copyWith(error: appError));
+    handler.next(nextErr);
   }
 
   AppError mapDioException(DioException err) {

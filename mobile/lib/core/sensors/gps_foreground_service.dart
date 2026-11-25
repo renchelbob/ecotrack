@@ -6,6 +6,7 @@ import 'package:ecotrack_mobile/core/database/outbox_dispatcher.dart';
 import 'package:ecotrack_mobile/core/database/sqlite_database.dart';
 import 'package:ecotrack_mobile/core/sensors/step_sensor_bridge.dart';
 import 'package:ecotrack_mobile/core/utils/co2_math.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_foreground_task/flutter_foreground_task.dart';
 import 'package:geolocator/geolocator.dart';
@@ -203,12 +204,16 @@ final class GpsForegroundService({
           prevSteps,
           cumulativeSteps,
         );
-        motionClass = Co2Math.classifyMotionInterval(
+        final classification = Co2Math.classifyMotionIntervalSafe(
           deltaTSec: deltaTSec,
           deltaDistM: deltaDistanceM,
           deltaSteps: deltaSteps,
           accuracyM: math.max(0.0, pos.accuracy),
         );
+        if (classification.antifraudCode case final code?) {
+          debugPrint('GpsForegroundService antifraud flagged: $code');
+        }
+        motionClass = classification.motionClass;
       }
 
       await txn.insert('local_gps_track_points', <String, Object?>{
@@ -247,13 +252,25 @@ final class GpsForegroundService({
     if (rows.isEmpty) {
       return;
     }
-    final nowMs = DateTime.now().millisecondsSinceEpoch;
-    final ageMs = nowMs - _lastBatchFlushMs;
-    if (!force && rows.length < _batchSizeThreshold && ageMs < _batchMaxAgeMs) {
+    final queuedSeqNos = await _loadQueuedSeqNos(activityDate);
+    final unqueuedRows = rows
+        .where(
+          (row) => !queuedSeqNos.contains((row['seq_no'] as num?)?.toInt()),
+        )
+        .toList();
+    if (unqueuedRows.isEmpty) {
       return;
     }
 
-    final pointsPayload = rows.map((row) {
+    final nowMs = DateTime.now().millisecondsSinceEpoch;
+    final ageMs = nowMs - _lastBatchFlushMs;
+    if (!force &&
+        unqueuedRows.length < _batchSizeThreshold &&
+        ageMs < _batchMaxAgeMs) {
+      return;
+    }
+
+    final pointsPayload = unqueuedRows.map((row) {
       final ms = (row['recorded_at_ms'] as num?)?.toInt() ?? nowMs;
       return <String, Object?>{
         'seq_no': (row['seq_no'] as num?)?.toInt() ?? 0,
@@ -280,19 +297,63 @@ final class GpsForegroundService({
           'points': pointsPayload,
         }),
       );
-      final ids = rows
-          .map((r) => (r['local_id'] as num?)?.toInt())
-          .whereType<int>()
-          .toList();
-      if (ids.isNotEmpty) {
-        final placeholders = List<String>.filled(ids.length, '?').join(',');
-        await _database.database.rawUpdate(
-          "UPDATE local_gps_track_points SET sync_status = 'synced' WHERE local_id IN ($placeholders)",
-          ids,
-        );
-      }
       _lastBatchFlushMs = nowMs;
       unawaited(outbox.flush());
+    }
+  }
+
+  Future<Set<int>> _loadQueuedSeqNos(String activityDate) async {
+    final outboxRows = await _database.database.query(
+      OutboxDispatcher.tableName,
+      columns: const ['payload_json'],
+      where: 'operation_type = ? AND status IN (?, ?)',
+      whereArgs: const [
+        'upload_gps_track_batch',
+        OutboxDispatcher.statusPending,
+        OutboxDispatcher.statusInFlight,
+      ],
+    );
+    final result = <int>{};
+    for (final row in outboxRows) {
+      _collectQueuedSeqNosFromPayload(
+        row['payload_json'] as String?,
+        activityDate,
+        result,
+      );
+    }
+    return result;
+  }
+
+  static void _collectQueuedSeqNosFromPayload(
+    String? payloadJson,
+    String activityDate,
+    Set<int> target,
+  ) {
+    if (payloadJson == null || payloadJson.isEmpty) {
+      return;
+    }
+    try {
+      final decoded = jsonDecode(payloadJson);
+      if (decoded is! Map<Object?, Object?>) {
+        return;
+      }
+      if (decoded['activity_date'] != activityDate) {
+        return;
+      }
+      final points = decoded['points'];
+      if (points is! List<Object?>) {
+        return;
+      }
+      for (final point in points) {
+        if (point is Map<Object?, Object?>) {
+          final seqNo = (point['seq_no'] as num?)?.toInt();
+          if (seqNo != null) {
+            target.add(seqNo);
+          }
+        }
+      }
+    } on FormatException {
+      return;
     }
   }
 

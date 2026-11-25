@@ -1,4 +1,6 @@
 import 'dart:async';
+import 'dart:convert';
+import 'dart:io';
 import 'dart:math' as math;
 
 import 'package:dio_cache_interceptor/dio_cache_interceptor.dart';
@@ -19,10 +21,11 @@ import 'package:go_router/go_router.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:material_ui/material_ui.dart';
+import 'package:path_provider/path_provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 final class const MapActivityScreen({
-  final MapScreenMode initialMode = .calculator,
+  final MapScreenMode initialMode = .myRoutes,
   final String? initialDateIso,
   super.key,
 }) extends StatefulWidget {
@@ -33,7 +36,13 @@ final class const MapActivityScreen({
 final class _MapActivityScreenState() extends State<MapActivityScreen> {
   final MapController _mapController = MapController();
   final LayerHitNotifier<int> _segmentHitNotifier = ValueNotifier(null);
-  final CacheStore _tileCacheStore = MemCacheStore();
+  final CacheStore _tileCacheStore = BackupCacheStore(
+    primary: MemCacheStore(
+      maxSize: 16 * 1024 * 1024,
+      maxEntrySize: 1024 * 1024,
+    ),
+    secondary: _FileTileCacheStore(),
+  );
 
   StreamSubscription<MapEvent>? _mapEventSub;
   Timer? _bboxDebounceTimer;
@@ -117,9 +126,31 @@ final class _MapActivityScreenState() extends State<MapActivityScreen> {
     final hitIndex = hit.hitValues.firstOrNull;
     final detail = state.routeView.detail;
     if (hitIndex == null || detail == null) return;
-    if (hitIndex < 0) {
+    if (hitIndex == -1) {
       EcoTopBannerOverlay.instance.showMessage(
         'Участок на транспорте (высокая скорость без шагов) не может быть отмечен как пеший.',
+      );
+      return;
+    }
+    if (hitIndex == -2) {
+      EcoTopBannerOverlay.instance.showMessage(
+        'Движение в помещении · автоформула',
+      );
+      return;
+    }
+    if (hitIndex < 0) {
+      final runs = _extractUnallocatedWalkingRuns(detail);
+      final runIdx = -100 - hitIndex;
+      final matched = (runIdx >= 0 && runIdx < runs.length)
+          ? runs[runIdx]
+          : null;
+      unawaited(
+        _openTransportSheet(
+          state: state,
+          initialRange: matched != null
+              ? (startSeq: matched.startSeq, endSeq: matched.endSeq)
+              : null,
+        ),
       );
       return;
     }
@@ -136,6 +167,7 @@ final class _MapActivityScreenState() extends State<MapActivityScreen> {
   Future<void> _openTransportSheet({
     required MapActivityReady state,
     RouteSegmentAllocationItem? existingAllocation,
+    ({int startSeq, int endSeq})? initialRange,
   }) async {
     final detail = state.routeView.detail;
     if (detail == null || detail.trackPoints.length < 2) {
@@ -159,6 +191,7 @@ final class _MapActivityScreenState() extends State<MapActivityScreen> {
           presets: state.routeView.presets,
           userCarGPerKm: state.routeView.userCarGPerKm,
           existingAllocation: existingAllocation,
+          initialRange: initialRange,
         ),
       ),
     );
@@ -228,7 +261,10 @@ final class _MapActivityScreenState() extends State<MapActivityScreen> {
       ),
       builder: (_) => BlocProvider<MapActivityBloc>.value(
         value: bloc,
-        child: _SuggestWastePointSheet(initialCenter: center),
+        child: _SuggestWastePointSheet(
+          initialCenter: center,
+          tileCacheStore: _tileCacheStore,
+        ),
       ),
     );
   }
@@ -284,24 +320,19 @@ final class _MapActivityScreenState() extends State<MapActivityScreen> {
             MapActivityLoading() => const Center(
               child: CircularProgressIndicator(color: EcoColors.inkPrimary),
             ),
-            MapActivityReady() =>
-              state.mode == .calculator
-                  ? _CalculatorView(ready: state)
-                  : _MapViewportStack(
-                      ready: state,
-                      mapController: _mapController,
-                      tileCacheStore: _tileCacheStore,
-                      segmentHitNotifier: _segmentHitNotifier,
-                      currentZoom: _currentZoom,
-                      onOpenGpsInterval: () =>
-                          unawaited(_openGpsIntervalPicker(state)),
-                      onOpenTransportSheet: () =>
-                          unawaited(_openTransportSheet(state: state)),
-                      onOpenSuggestModal: () =>
-                          unawaited(_openSuggestPointModal(state)),
-                      onNavigatePoint: (pt) =>
-                          unawaited(_openExternalNavigator(pt)),
-                    ),
+            MapActivityReady() => _MapViewportStack(
+              ready: state,
+              mapController: _mapController,
+              tileCacheStore: _tileCacheStore,
+              segmentHitNotifier: _segmentHitNotifier,
+              currentZoom: _currentZoom,
+              onOpenGpsInterval: () => unawaited(_openGpsIntervalPicker(state)),
+              onOpenTransportSheet: () =>
+                  unawaited(_openTransportSheet(state: state)),
+              onOpenSuggestModal: () =>
+                  unawaited(_openSuggestPointModal(state)),
+              onNavigatePoint: (pt) => unawaited(_openExternalNavigator(pt)),
+            ),
           },
         ),
       );
@@ -485,6 +516,69 @@ final class const _MapViewportStack({
   }
 }
 
+List<({int startSeq, int endSeq, List<LatLng> points})>
+_extractUnallocatedWalkingRuns(DailyActivityDetail detail) {
+  final pts = detail.trackPoints;
+  final runs = <({int startSeq, int endSeq, List<LatLng> points})>[];
+  var i = 0;
+  while (i < pts.length) {
+    final p = pts[i];
+    final isAllocated = detail.allocations.any(
+      (a) => p.seqNo > a.startSeqNo && p.seqNo <= a.endSeqNo,
+    );
+    if (p.motionClass == .walking && !isAllocated) {
+      final startIdx = i > 0 ? i - 1 : i;
+      var endIdx = i;
+      while (endIdx + 1 < pts.length) {
+        final next = pts[endIdx + 1];
+        final nextAllocated = detail.allocations.any(
+          (a) => next.seqNo > a.startSeqNo && next.seqNo <= a.endSeqNo,
+        );
+        if (next.motionClass == .walking && !nextAllocated) {
+          endIdx++;
+        } else {
+          break;
+        }
+      }
+      final rawCoords = <LatLng>[
+        for (var k = startIdx; k <= endIdx; k++) LatLng(pts[k].lat, pts[k].lon),
+      ];
+      if (rawCoords.length >= 2) {
+        final simplified = rawCoords.length > 2000
+            ? PolylineSimplifier.simplifyRdp(rawCoords)
+            : rawCoords;
+        runs.add((
+          startSeq: pts[startIdx].seqNo,
+          endSeq: pts[endIdx].seqNo,
+          points: simplified,
+        ));
+      }
+      i = endIdx + 1;
+    } else {
+      i++;
+    }
+  }
+  return runs;
+}
+
+List<List<LatLng>> _extractIndoorPacingRuns(DailyActivityDetail detail) {
+  final pts = detail.trackPoints;
+  final runs = <List<LatLng>>[];
+  var i = 0;
+  while (i < pts.length) {
+    if (pts[i].motionClass == .indoorPacing) {
+      final coords = <LatLng>[LatLng(pts[i].lat, pts[i].lon)];
+      while (i + 1 < pts.length && pts[i + 1].motionClass == .indoorPacing) {
+        i++;
+        coords.add(LatLng(pts[i].lat, pts[i].lon));
+      }
+      runs.add(coords);
+    }
+    i++;
+  }
+  return runs;
+}
+
 final class const _RoutesPolylineLayer({
   required final DailyActivityDetail? detail,
   required final LayerHitNotifier<int> hitNotifier,
@@ -496,23 +590,31 @@ final class const _RoutesPolylineLayer({
       return const SizedBox.shrink();
     }
     final polylines = <Polyline<int>>[];
-    final walkingPts = currentDetail.trackPoints
-        .where((p) => p.motionClass == .walking)
-        .map((p) => LatLng(p.lat, p.lon))
-        .toList();
-    final simplifiedWalk = walkingPts.length > 2000
-        ? PolylineSimplifier.simplifyRdp(walkingPts)
-        : walkingPts;
-    if (simplifiedWalk.length >= 2) {
+    final walkingRuns = _extractUnallocatedWalkingRuns(currentDetail);
+    for (var i = 0; i < walkingRuns.length; i++) {
       polylines.add(
         Polyline<int>(
-          points: simplifiedWalk,
+          points: walkingRuns[i].points,
           color: EcoColors.inkPrimary,
           strokeWidth: 4.5,
           pattern: StrokePattern.dashed(segments: const [10, 6]),
-          hitValue: 0,
+          hitValue: -100 - i,
         ),
       );
+    }
+    final indoorRuns = _extractIndoorPacingRuns(currentDetail);
+    for (final run in indoorRuns) {
+      if (run.length >= 2) {
+        polylines.add(
+          Polyline<int>(
+            points: run,
+            color: EcoColors.inkSecondary,
+            strokeWidth: 3.0,
+            pattern: const StrokePattern.dotted(),
+            hitValue: -2,
+          ),
+        );
+      }
     }
     final vehiclePts = currentDetail.trackPoints
         .where((p) => p.motionClass == .vehicleSuspected)
@@ -555,16 +657,50 @@ final class const _RoutesBadgesMarkerLayer({
   @override
   Widget build(BuildContext context) {
     final currentDetail = detail;
-    if (currentDetail == null || currentDetail.allocations.isEmpty) {
+    if (currentDetail == null) {
       return const SizedBox.shrink();
     }
-    final badgeMarkers = <Marker>[];
+    final markers = <Marker>[];
+    final indoorRuns = _extractIndoorPacingRuns(currentDetail);
+    for (final run in indoorRuns) {
+      final anchor = run[run.length ~/ 2];
+      markers.add(
+        Marker(
+          point: anchor,
+          width: 48,
+          height: 48,
+          child: Tooltip(
+            message: 'Движение в помещении · автоформула',
+            child: GestureDetector(
+              onTap: () => EcoTopBannerOverlay.instance.showMessage(
+                'Движение в помещении · автоформула',
+              ),
+              child: const Center(
+                child: SizedBox(
+                  width: 16,
+                  height: 16,
+                  child: DecoratedBox(
+                    decoration: BoxDecoration(
+                      color: EcoColors.inkSecondary,
+                      shape: .circle,
+                      border: .fromBorderSide(
+                        BorderSide(color: EcoColors.surfacePrimary, width: 2),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+    }
     for (final alloc in currentDetail.allocations) {
       final coords = alloc.coordinates
           .map((c) => LatLng(c.lat, c.lon))
           .toList();
       if (coords.length >= 2) {
-        badgeMarkers.add(
+        markers.add(
           Marker(
             point: coords[coords.length ~/ 2],
             width: 120,
@@ -588,7 +724,10 @@ final class const _RoutesBadgesMarkerLayer({
         );
       }
     }
-    return MarkerLayer(markers: badgeMarkers);
+    if (markers.isEmpty) {
+      return const SizedBox.shrink();
+    }
+    return MarkerLayer(markers: markers);
   }
 }
 
@@ -604,34 +743,10 @@ final class const _WasteClusterMapLayer({
             point: LatLng(pt.lat, pt.lon),
             width: 48,
             height: 48,
-            child: GestureDetector(
+            child: _WastePinMarker(
+              isUnverified: pt.status == .unverified || pt.trustScore < 60,
               onTap: () => context.read<MapActivityBloc>().add(
                 MapWastePointTapped(pt.id),
-              ),
-              child: Center(
-                child: DecoratedBox(
-                  decoration: BoxDecoration(
-                    color: EcoColors.surfacePrimary,
-                    shape: .circle,
-                    border: .fromBorderSide(
-                      BorderSide(
-                        color: pt.status == .unverified || pt.trustScore < 50
-                            ? EcoColors.inkSecondary
-                            : EcoColors.inkPrimary,
-                        width: 2,
-                      ),
-                    ),
-                  ),
-                  child: const SizedBox(
-                    width: 40,
-                    height: 40,
-                    child: Icon(
-                      LucideIcons.recycle,
-                      size: 20,
-                      color: EcoColors.inkPrimary,
-                    ),
-                  ),
-                ),
               ),
             ),
           ),
@@ -664,6 +779,116 @@ final class const _WasteClusterMapLayer({
   }
 }
 
+final class const _WastePinMarker({
+  required final bool isUnverified,
+  required final VoidCallback onTap,
+}) extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) => GestureDetector(
+    onTap: onTap,
+    child: Center(
+      child: Stack(
+        clipBehavior: .none,
+        children: [
+          if (isUnverified)
+            const CustomPaint(
+              painter: _DashedCircleBorderPainter(
+                color: EcoColors.inkSecondary,
+              ),
+              child: SizedBox(
+                width: 40,
+                height: 40,
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    color: EcoColors.surfacePrimary,
+                    shape: .circle,
+                  ),
+                  child: Icon(
+                    LucideIcons.recycle,
+                    size: 19,
+                    color: EcoColors.inkSecondary,
+                  ),
+                ),
+              ),
+            )
+          else
+            const DecoratedBox(
+              decoration: BoxDecoration(
+                color: EcoColors.surfacePrimary,
+                shape: .circle,
+                border: .fromBorderSide(
+                  BorderSide(color: EcoColors.inkPrimary, width: 2),
+                ),
+              ),
+              child: SizedBox(
+                width: 40,
+                height: 40,
+                child: Icon(
+                  LucideIcons.recycle,
+                  size: 20,
+                  color: EcoColors.inkPrimary,
+                ),
+              ),
+            ),
+          if (isUnverified)
+            Positioned(
+              right: -2,
+              top: -2,
+              child: SizedBox(
+                width: 17,
+                height: 17,
+                child: DecoratedBox(
+                  decoration: const BoxDecoration(
+                    color: EcoColors.inkPrimary,
+                    shape: .circle,
+                    border: .fromBorderSide(
+                      BorderSide(color: EcoColors.surfacePrimary, width: 1.5),
+                    ),
+                  ),
+                  child: Center(
+                    child: Text(
+                      '?',
+                      style: EcoTypography.labelSmall.copyWith(
+                        fontSize: 10,
+                        fontWeight: .w700,
+                        color: EcoColors.surfacePrimary,
+                        height: 1.0,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+        ],
+      ),
+    ),
+  );
+}
+
+final class const _DashedCircleBorderPainter({required final Color color})
+    extends CustomPainter {
+  @override
+  void paint(Canvas canvas, Size size) {
+    final radius = math.min(size.width, size.height) / 2;
+    final center = Offset(size.width / 2, size.height / 2);
+    final paint = Paint()
+      ..color = color
+      ..style = .stroke
+      ..strokeWidth = 2.0;
+    const dashCount = 12;
+    const step = (math.pi * 2) / dashCount;
+    const sweep = step * 0.58;
+    final rect = Rect.fromCircle(center: center, radius: radius);
+    for (var i = 0; i < dashCount; i++) {
+      canvas.drawArc(rect, i * step, sweep, false, paint);
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _DashedCircleBorderPainter oldDelegate) =>
+      oldDelegate.color != color;
+}
+
 final class const _TopModeToggleBar({
   required final MapScreenMode mode,
   required final ValueChanged<MapScreenMode> onModeSelected,
@@ -684,12 +909,7 @@ final class const _TopModeToggleBar({
         child: Row(
           children: [
             _ModeToggleSegment(
-              label: 'Калькулятор',
-              selected: mode == .calculator,
-              onTap: () => onModeSelected(.calculator),
-            ),
-            _ModeToggleSegment(
-              label: 'Маршруты',
+              label: 'Мои маршруты',
               selected: mode == .myRoutes,
               onTap: () => onModeSelected(.myRoutes),
             ),
@@ -983,6 +1203,7 @@ final class const _TransportAllocationBottomSheet({
   required final List<TransportPresetItem> presets,
   required final double userCarGPerKm,
   final RouteSegmentAllocationItem? existingAllocation,
+  final ({int startSeq, int endSeq})? initialRange,
 }) extends StatefulWidget {
   @override
   State<_TransportAllocationBottomSheet> createState() =>
@@ -991,18 +1212,33 @@ final class const _TransportAllocationBottomSheet({
 
 final class _TransportAllocationBottomSheetState()
     extends State<_TransportAllocationBottomSheet> {
-  late int _startSeq;
-  late int _endSeq;
+  late int _startIndex;
+  late int _endIndex;
   late TransportModeCode _selectedMode;
   bool _showCarPresets = false;
+
+  int get _startSeq => widget.detail.trackPoints[_startIndex].seqNo;
+  int get _endSeq => widget.detail.trackPoints[_endIndex].seqNo;
 
   @override
   void initState() {
     super.initState();
-    final minSeq = widget.detail.trackPoints.first.seqNo;
-    final maxSeq = widget.detail.trackPoints.last.seqNo;
-    _startSeq = widget.existingAllocation?.startSeqNo ?? minSeq;
-    _endSeq = widget.existingAllocation?.endSeqNo ?? maxSeq;
+    final pts = widget.detail.trackPoints;
+    final targetStart =
+        widget.existingAllocation?.startSeqNo ??
+        widget.initialRange?.startSeq ??
+        pts.first.seqNo;
+    final targetEnd =
+        widget.existingAllocation?.endSeqNo ??
+        widget.initialRange?.endSeq ??
+        pts.last.seqNo;
+    final startIdx = pts.indexWhere((p) => p.seqNo >= targetStart);
+    final endIdx = pts.lastIndexWhere((p) => p.seqNo <= targetEnd);
+    _startIndex = (startIdx == -1 ? 0 : startIdx).clamp(0, pts.length - 2);
+    _endIndex = (endIdx == -1 ? pts.length - 1 : endIdx).clamp(
+      _startIndex + 1,
+      pts.length - 1,
+    );
     _selectedMode = widget.existingAllocation?.replacedTransportMode ?? .bus;
     _showCarPresets =
         _selectedMode == .carCompact ||
@@ -1023,16 +1259,63 @@ final class _TransportAllocationBottomSheetState()
     return mode.defaultCo2GramsPerMeter;
   }
 
+  void _onRangeChanged(RangeValues values) {
+    final maxIdx = widget.detail.trackPoints.length - 1;
+    var nextStart = values.start.round().clamp(0, maxIdx - 1);
+    var nextEnd = values.end.round().clamp(1, maxIdx);
+    if (nextStart >= nextEnd) {
+      if (nextStart != _startIndex) {
+        nextStart = nextEnd - 1;
+      } else {
+        nextEnd = nextStart + 1;
+      }
+    }
+    setState(() {
+      _startIndex = nextStart;
+      _endIndex = nextEnd;
+    });
+  }
+
+  List<RouteSegmentAllocationInput> _buildAllocationPayload() {
+    final existing = widget.existingAllocation;
+    final start = _startSeq;
+    final end = _endSeq;
+    final preserved = <RouteSegmentAllocationInput>[
+      for (final item in widget.detail.allocations)
+        if (item.id != existing?.id &&
+            (item.endSeqNo <= start || item.startSeqNo >= end))
+          RouteSegmentAllocationInput(
+            idempotencyKey: item.idempotencyKey,
+            startSeqNo: item.startSeqNo,
+            endSeqNo: item.endSeqNo,
+            replacedTransportMode: item.replacedTransportMode,
+          ),
+      RouteSegmentAllocationInput(
+        idempotencyKey: UuidV7.generate(),
+        startSeqNo: start,
+        endSeqNo: end,
+        replacedTransportMode: _selectedMode,
+      ),
+    ]..sort((a, b) => a.startSeqNo.compareTo(b.startSeqNo));
+    return preserved;
+  }
+
   @override
   Widget build(BuildContext context) {
-    final pts = widget.detail.trackPoints
-        .where((p) => p.seqNo >= _startSeq && p.seqNo <= _endSeq)
+    final pts = widget.detail.trackPoints;
+    final start = _startSeq;
+    final end = _endSeq;
+    final intervalPts = pts
+        .where((p) => p.seqNo > start && p.seqNo <= end)
         .toList();
     final distM = math.max(
       1.0,
-      pts.fold<double>(0.0, (acc, p) => acc + p.deltaDistanceM),
+      intervalPts.fold<double>(0.0, (acc, p) => acc + p.deltaDistanceM),
     );
-    final steps = pts.fold<int>(0, (acc, p) => acc + p.deltaSteps);
+    final steps = intervalPts.fold<int>(0, (acc, p) => acc + p.deltaSteps);
+    final hasVehicleMotion = intervalPts.any(
+      (p) => p.motionClass == .vehicleSuspected,
+    );
     final exactCo2 = Co2Math.computeSegmentCo2Grams(
       distM,
       _rateForMode(_selectedMode),
@@ -1043,7 +1326,7 @@ final class _TransportAllocationBottomSheetState()
     final existing = widget.existingAllocation;
 
     return SafeArea(
-      child: Padding(
+      child: SingleChildScrollView(
         padding: const .fromLTRB(20, 16, 20, 24),
         child: Column(
           mainAxisSize: .min,
@@ -1058,6 +1341,36 @@ final class _TransportAllocationBottomSheetState()
               'Укажите, вместо какого транспорта вы прошли пешком:',
               style: EcoTypography.bodyMedium,
             ),
+            if (pts.length > 2) ...[
+              const SizedBox(height: 10),
+              Text(
+                'Границы участка: точки #$start — #$end',
+                style: EcoTypography.labelSmall,
+              ),
+              RangeSlider(
+                values: RangeValues(
+                  _startIndex.toDouble(),
+                  _endIndex.toDouble(),
+                ),
+                min: 0,
+                max: (pts.length - 1).toDouble(),
+                divisions: pts.length - 1,
+                activeColor: EcoColors.inkPrimary,
+                inactiveColor: EcoColors.surfaceCard,
+                labels: RangeLabels('#$start', '#$end'),
+                onChanged: _onRangeChanged,
+              ),
+            ],
+            if (hasVehicleMotion) ...[
+              const SizedBox(height: 4),
+              Text(
+                'Выбранный интервал включает участок транспорта без шагов — сдвиньте границы на пеший отрезок.',
+                style: EcoTypography.labelSmall.copyWith(
+                  color: EcoColors.inkPrimary,
+                  fontWeight: .w700,
+                ),
+              ),
+            ],
             const SizedBox(height: 12),
             Wrap(
               spacing: 8,
@@ -1150,18 +1463,9 @@ final class _TransportAllocationBottomSheetState()
             ),
             const SizedBox(height: 14),
             ElevatedButton(
-              onPressed: widget.detail.isEditable
+              onPressed: widget.detail.isEditable && !hasVehicleMotion
                   ? () {
-                      bloc.add(
-                        MapAllocationsSaved([
-                          RouteSegmentAllocationInput(
-                            idempotencyKey: UuidV7.generate(),
-                            startSeqNo: _startSeq,
-                            endSeqNo: _endSeq,
-                            replacedTransportMode: _selectedMode,
-                          ),
-                        ]),
-                      );
+                      bloc.add(MapAllocationsSaved(_buildAllocationPayload()));
                       Navigator.of(context).pop();
                     }
                   : null,
@@ -1211,9 +1515,28 @@ final class const _WastePointDetailSheet({
   required final VoidCallback onClose,
   required final VoidCallback onNavigate,
 }) extends StatelessWidget {
+  static String _formatVerifiedLabel(String? iso) {
+    if (iso == null || iso.isEmpty) {
+      return 'Ещё не проверялось пользователями';
+    }
+    final dt = DateTime.tryParse(iso);
+    if (dt == null) {
+      return 'Проверено недавно';
+    }
+    final daysAgo = DateTime.now().difference(dt.toLocal()).inDays;
+    if (daysAgo <= 0) {
+      return 'Проверено сегодня';
+    }
+    return 'Проверено $daysAgo дн. назад';
+  }
+
   @override
   Widget build(BuildContext context) {
     final bloc = context.read<MapActivityBloc>();
+    final verifiedLabel = _formatVerifiedLabel(point.lastVerifiedAt);
+    final operatorText = point.operatorName?.trim();
+    final hoursText = point.openingHours?.trim();
+
     return DecoratedBox(
       decoration: const BoxDecoration(
         color: EcoColors.surfacePrimary,
@@ -1243,17 +1566,34 @@ final class const _WastePointDetailSheet({
                 ],
               ),
               Text(
-                '${point.status.labelRu} · Подтверждений: ${point.confirmationsCount}',
+                '${point.status.labelRu} · $verifiedLabel · Подтверждений: ${point.confirmationsCount}',
                 style: EcoTypography.labelSmall,
               ),
               if (point.addressText case final address?) ...[
                 const SizedBox(height: 4),
                 Text(address, style: EcoTypography.bodyMedium),
               ],
-              if (point.openingHours case final hours?) ...[
+              if (operatorText != null && operatorText.isNotEmpty) ...[
                 const SizedBox(height: 2),
-                Text(hours, style: EcoTypography.labelSmall),
+                Text(
+                  'Оператор: $operatorText',
+                  style: EcoTypography.labelSmall,
+                ),
               ],
+              if (hoursText != null && hoursText.isNotEmpty) ...[
+                const SizedBox(height: 2),
+                Text(
+                  'Режим работы: $hoursText',
+                  style: EcoTypography.labelSmall,
+                ),
+              ],
+              const SizedBox(height: 2),
+              Text(
+                'Источник: ${point.attributionText}',
+                style: EcoTypography.labelSmall.copyWith(
+                  color: EcoColors.inkSecondary,
+                ),
+              ),
               const SizedBox(height: 8),
               Wrap(
                 spacing: 6,
@@ -1286,7 +1626,11 @@ final class const _WastePointDetailSheet({
                         ]
                         .map(
                           (reportType) => ActionChip(
-                            label: Text(reportType.labelRu),
+                            label: Text(
+                              reportType == .confirmWorking
+                                  ? '${reportType.labelRu} (+15 ★)'
+                                  : reportType.labelRu,
+                            ),
                             onPressed: isSubmitting
                                 ? null
                                 : () => bloc.add(
@@ -1307,8 +1651,10 @@ final class const _WastePointDetailSheet({
   }
 }
 
-final class const _SuggestWastePointSheet({required final LatLng initialCenter})
-    extends StatefulWidget {
+final class const _SuggestWastePointSheet({
+  required final LatLng initialCenter,
+  required final CacheStore tileCacheStore,
+}) extends StatefulWidget {
   @override
   State<_SuggestWastePointSheet> createState() =>
       _SuggestWastePointSheetState();
@@ -1318,12 +1664,22 @@ final class _SuggestWastePointSheetState()
     extends State<_SuggestWastePointSheet> {
   final TextEditingController _titleController = TextEditingController();
   final TextEditingController _hoursController = TextEditingController();
+  final MapController _miniMapController = MapController();
+  late final ValueNotifier<LatLng> _coordsNotifier;
   final Set<WasteFractionCode> _selectedFractions = {.plastic};
+
+  @override
+  void initState() {
+    super.initState();
+    _coordsNotifier = ValueNotifier(widget.initialCenter);
+  }
 
   @override
   void dispose() {
     _titleController.dispose();
     _hoursController.dispose();
+    _miniMapController.dispose();
+    _coordsNotifier.dispose();
     super.dispose();
   }
 
@@ -1348,9 +1704,90 @@ final class _SuggestWastePointSheetState()
                 style: EcoTypography.titleMedium,
               ),
               const SizedBox(height: 6),
-              Text(
-                'Координаты: ${widget.initialCenter.latitude.toStringAsFixed(5)}, ${widget.initialCenter.longitude.toStringAsFixed(5)}',
-                style: EcoTypography.labelSmall,
+              ValueListenableBuilder<LatLng>(
+                valueListenable: _coordsNotifier,
+                builder: (_, coords, _) => Text(
+                  'Переместите карту или нажмите на точку: '
+                  '${coords.latitude.toStringAsFixed(5)}, '
+                  '${coords.longitude.toStringAsFixed(5)}',
+                  style: EcoTypography.labelSmall,
+                ),
+              ),
+              const SizedBox(height: 8),
+              SizedBox(
+                height: 168,
+                child: DecoratedBox(
+                  decoration: const BoxDecoration(
+                    borderRadius: .all(.circular(16)),
+                    border: .fromBorderSide(
+                      BorderSide(color: EcoColors.borderMuted, width: 1.5),
+                    ),
+                  ),
+                  child: ClipRRect(
+                    borderRadius: const .all(.circular(15)),
+                    child: Stack(
+                      children: [
+                        FlutterMap(
+                          mapController: _miniMapController,
+                          options: MapOptions(
+                            initialCenter: widget.initialCenter,
+                            initialZoom: 16.0,
+                            minZoom: 5.0,
+                            maxZoom: 19.0,
+                            interactionOptions: const InteractionOptions(
+                              flags:
+                                  InteractiveFlag.all & ~InteractiveFlag.rotate,
+                            ),
+                            onPositionChanged: (camera, _) {
+                              _coordsNotifier.value = camera.center;
+                            },
+                            onTap: (_, latLng) {
+                              _miniMapController.move(
+                                latLng,
+                                _miniMapController.camera.zoom,
+                              );
+                              _coordsNotifier.value = latLng;
+                            },
+                          ),
+                          children: [
+                            TileLayer(
+                              urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+                              userAgentPackageName: 'ru.ecotrack.mobile',
+                              tileProvider: CachedTileProvider(
+                                store: widget.tileCacheStore,
+                                maxStale: const Duration(days: 14),
+                              ),
+                            ),
+                          ],
+                        ),
+                        const IgnorePointer(
+                          child: Center(
+                            child: DecoratedBox(
+                              decoration: BoxDecoration(
+                                color: EcoColors.surfacePrimary,
+                                shape: .circle,
+                                border: .fromBorderSide(
+                                  BorderSide(
+                                    color: EcoColors.inkPrimary,
+                                    width: 2,
+                                  ),
+                                ),
+                              ),
+                              child: Padding(
+                                padding: .all(6),
+                                child: Icon(
+                                  LucideIcons.crosshair,
+                                  size: 18,
+                                  color: EcoColors.inkPrimary,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
               ),
               const SizedBox(height: 12),
               TextField(
@@ -1391,14 +1828,15 @@ final class _SuggestWastePointSheetState()
                 onPressed: () {
                   final title = _titleController.text.trim();
                   if (title.isEmpty) return;
+                  final coords = _coordsNotifier.value;
                   bloc.add(
                     MapWastePointSuggested(
                       SuggestWastePointRequest(
                         title: title,
                         openingHours: _hoursController.text.trim(),
                         acceptedFractions: _selectedFractions.toList(),
-                        lat: widget.initialCenter.latitude,
-                        lon: widget.initialCenter.longitude,
+                        lat: coords.latitude,
+                        lon: coords.longitude,
                       ),
                     ),
                   );
@@ -1414,440 +1852,222 @@ final class _SuggestWastePointSheetState()
   }
 }
 
-enum _CalcActivityKind(final String labelRu, final double gPerKm) {
-  walk('Прогулка', 45.92),
-  car('Автомобиль', 181.74),
-  bus('Автобус', 89.0),
-  metro('Метро', 35.0),
-  scooter('Самокат', 62.0),
-  tram('Трамвай / Троллейбус', 42.0),
-}
+final class _FileTileCacheStore() extends CacheStore {
+  Directory? _dir;
+  bool _unavailable = false;
 
-final class const _CalculatorView({required final MapActivityReady ready})
-    extends StatefulWidget {
-  @override
-  State<_CalculatorView> createState() => _CalculatorViewState();
-}
-
-final class _CalculatorViewState() extends State<_CalculatorView> {
-  _CalcActivityKind _selected = .walk;
-  double _distanceKm = 2.5;
-
-  double _effectiveGPerKm() => _selected == .car
-      ? widget.ready.routeView.userCarGPerKm
-      : _selected.gPerKm;
-
-  int _previewCo2Grams() => (_distanceKm * _effectiveGPerKm()).round();
-
-  String _formatKm(double km) => km.toStringAsFixed(1).replaceAll('.', ',');
-
-  void _stepDistance(double delta) {
-    setState(() {
-      _distanceKm = (_distanceKm + delta).clamp(0.5, 50.0);
-    });
+  Future<Directory?> _resolveDir() async {
+    if (_unavailable) return null;
+    final existing = _dir;
+    if (existing != null) return existing;
+    try {
+      final base = await getTemporaryDirectory();
+      final dir = Directory(
+        '${base.path}${Platform.pathSeparator}ecotrack_tiles',
+      );
+      if (!dir.existsSync()) {
+        await dir.create(recursive: true);
+      }
+      _dir = dir;
+      return dir;
+    } on Exception {
+      _unavailable = true;
+      return null;
+    }
   }
 
-  void _openOtherSheet() {
-    showModalBottomSheet<void>(
-      context: context,
-      backgroundColor: EcoColors.surfacePrimary,
-      shape: const RoundedRectangleBorder(
-        borderRadius: .vertical(top: .circular(24)),
-      ),
-      builder: (ctx) => SafeArea(
-        child: Padding(
-          padding: const .fromLTRB(20, 16, 20, 24),
-          child: Column(
-            mainAxisSize: .min,
-            crossAxisAlignment: .stretch,
-            children: [
-              const Text(
-                'Другой вид транспорта',
-                style: EcoTypography.titleMedium,
-              ),
-              const SizedBox(height: 12),
-              for (final kind in _CalcActivityKind.values)
-                ListTile(
-                  title: Text(kind.labelRu, style: EcoTypography.bodyLarge),
-                  trailing: Text(
-                    '${kind.gPerKm.round()} г/км',
-                    style: EcoTypography.labelSmall,
-                  ),
-                  selected: _selected == kind,
-                  onTap: () {
-                    setState(() => _selected = kind);
-                    Navigator.of(ctx).pop();
-                  },
-                ),
-            ],
-          ),
-        ),
+  File _fileForKey(Directory dir, String key) {
+    final safe = base64Url.encode(utf8.encode(key));
+    return File('${dir.path}${Platform.pathSeparator}$safe.json');
+  }
+
+  @override
+  Future<bool> exists(String key) async {
+    final dir = await _resolveDir();
+    if (dir == null) return false;
+    return await _fileForKey(dir, key).exists();
+  }
+
+  @override
+  Future<CacheResponse?> get(String key) async {
+    final dir = await _resolveDir();
+    if (dir == null) return null;
+    final file = _fileForKey(dir, key);
+    if (!file.existsSync()) return null;
+    try {
+      final raw = jsonDecode(await file.readAsString());
+      if (raw is! Map<String, Object?>) return null;
+      return _decodeResponse(raw);
+    } on Exception {
+      return null;
+    }
+  }
+
+  @override
+  Future<List<CacheResponse>> getFromPath(
+    RegExp pathPattern, {
+    Map<String, String?>? queryParams,
+  }) async {
+    final dir = await _resolveDir();
+    if (dir == null) return const [];
+    final out = <CacheResponse>[];
+    for (final entity in dir.listSync()) {
+      if (entity is! File) continue;
+      final resp = await _readFile(entity);
+      if (resp != null &&
+          pathExists(resp.url, pathPattern, queryParams: queryParams)) {
+        out.add(resp);
+      }
+    }
+    return out;
+  }
+
+  Future<CacheResponse?> _readFile(File file) async {
+    try {
+      final raw = jsonDecode(await file.readAsString());
+      if (raw is Map<String, Object?>) {
+        return _decodeResponse(raw);
+      }
+    } on Exception {
+      return null;
+    }
+    return null;
+  }
+
+  @override
+  Future<void> set(CacheResponse response) async {
+    final dir = await _resolveDir();
+    if (dir == null) return;
+    try {
+      final file = _fileForKey(dir, response.key);
+      await file.writeAsString(jsonEncode(_encodeResponse(response)));
+    } on Exception {
+      _unavailable = true;
+    }
+  }
+
+  @override
+  Future<void> delete(String key, {bool staleOnly = false}) async {
+    final dir = await _resolveDir();
+    if (dir == null) return;
+    final file = _fileForKey(dir, key);
+    if (!file.existsSync()) return;
+    if (staleOnly) {
+      final resp = await _readFile(file);
+      if (resp == null || !resp.isStaled()) return;
+    }
+    try {
+      await file.delete();
+    } on Exception {
+      _unavailable = true;
+    }
+  }
+
+  @override
+  Future<void> deleteFromPath(
+    RegExp pathPattern, {
+    Map<String, String?>? queryParams,
+  }) async {
+    final matches = await getFromPath(pathPattern, queryParams: queryParams);
+    for (final resp in matches) {
+      await delete(resp.key);
+    }
+  }
+
+  @override
+  Future<void> clean({
+    CachePriority priorityOrBelow = CachePriority.high,
+    bool staleOnly = false,
+  }) async {
+    final dir = await _resolveDir();
+    if (dir == null) return;
+    for (final entity in dir.listSync()) {
+      if (entity is! File) continue;
+      final resp = await _readFile(entity);
+      if (resp == null) continue;
+      final priorityOk = resp.priority.index <= priorityOrBelow.index;
+      final staleOk = !staleOnly || resp.isStaled();
+      if (priorityOk && staleOk) {
+        await entity.delete();
+      }
+    }
+  }
+
+  @override
+  Future<void> close() async {}
+
+  Map<String, Object?> _encodeResponse(CacheResponse r) => <String, Object?>{
+    'key': r.key,
+    'url': r.url,
+    'statusCode': r.statusCode,
+    'priority': r.priority.index,
+    'requestDate': r.requestDate.millisecondsSinceEpoch,
+    'responseDate': r.responseDate.millisecondsSinceEpoch,
+    if (r.date case final dt?) 'date': dt.millisecondsSinceEpoch,
+    if (r.expires case final dt?) 'expires': dt.millisecondsSinceEpoch,
+    if (r.maxStale case final dt?) 'maxStale': dt.millisecondsSinceEpoch,
+    if (r.eTag case final tag?) 'eTag': tag,
+    if (r.lastModified case final lm?) 'lastModified': lm,
+    if (r.content case final bytes?) 'content': base64Encode(bytes),
+    if (r.headers case final hdrs?) 'headers': base64Encode(hdrs),
+    'cc': <String, Object?>{
+      'maxAge': r.cacheControl.maxAge,
+      'maxStale': r.cacheControl.maxStale,
+      'minFresh': r.cacheControl.minFresh,
+      'mustRevalidate': r.cacheControl.mustRevalidate,
+      'noCache': r.cacheControl.noCache,
+      'noStore': r.cacheControl.noStore,
+      if (r.cacheControl.privacy case final priv?) 'privacy': priv,
+    },
+  };
+
+  CacheResponse? _decodeResponse(Map<String, Object?> json) {
+    final key = json['key'];
+    final url = json['url'];
+    final statusCode = json['statusCode'];
+    final reqMs = json['requestDate'];
+    final respMs = json['responseDate'];
+    if (key is! String ||
+        url is! String ||
+        statusCode is! int ||
+        reqMs is! int ||
+        respMs is! int) {
+      return null;
+    }
+    final ccMap = json['cc'] as Map<String, Object?>?;
+    final priorityIdx =
+        (json['priority'] as int?) ?? CachePriority.normal.index;
+    final priority = CachePriority
+        .values[priorityIdx.clamp(0, CachePriority.values.length - 1)];
+    return CacheResponse(
+      key: key,
+      url: url,
+      statusCode: statusCode,
+      priority: priority,
+      requestDate: DateTime.fromMillisecondsSinceEpoch(reqMs),
+      responseDate: DateTime.fromMillisecondsSinceEpoch(respMs),
+      date: _decodeDt(json['date']),
+      expires: _decodeDt(json['expires']),
+      maxStale: _decodeDt(json['maxStale']),
+      eTag: json['eTag'] as String?,
+      lastModified: json['lastModified'] as String?,
+      content: _decodeBytes(json['content']),
+      headers: _decodeBytes(json['headers']),
+      cacheControl: CacheControl(
+        maxAge: (ccMap?['maxAge'] as int?) ?? -1,
+        maxStale: (ccMap?['maxStale'] as int?) ?? -1,
+        minFresh: (ccMap?['minFresh'] as int?) ?? -1,
+        mustRevalidate: (ccMap?['mustRevalidate'] as bool?) ?? false,
+        noCache: (ccMap?['noCache'] as bool?) ?? false,
+        noStore: (ccMap?['noStore'] as bool?) ?? false,
+        privacy: ccMap?['privacy'] as String?,
       ),
     );
   }
 
-  @override
-  Widget build(BuildContext context) {
-    final co2 = _previewCo2Grams();
-    final distanceLabel = '${_formatKm(_distanceKm)} км';
+  DateTime? _decodeDt(Object? raw) =>
+      raw is int ? DateTime.fromMillisecondsSinceEpoch(raw) : null;
 
-    return SafeArea(
-      child: ListView(
-        padding: const .fromLTRB(20, 10, 20, 104),
-        children: [
-          const Center(
-            child: Text('Калькулятор', style: EcoTypography.titleMedium),
-          ),
-          const SizedBox(height: 10),
-          _TopModeToggleBar(
-            mode: widget.ready.mode,
-            onModeSelected: (m) =>
-                context.read<MapActivityBloc>().add(MapModeToggled(m)),
-          ),
-          const SizedBox(height: 18),
-          Text(
-            'Записать активность',
-            style: EcoTypography.headlineLarge.copyWith(
-              fontSize: 22,
-              fontWeight: .w400,
-            ),
-          ),
-          const SizedBox(height: 10),
-          _CalcPreviewCard(
-            co2Grams: co2,
-            activityLabel: _selected.labelRu,
-            distanceLabel: distanceLabel,
-            isSubmitting: widget.ready.isSubmitting,
-            onSubmit: () => context.read<MapActivityBloc>().add(
-              MapCalculatorLogged(
-                activityLabel: _selected.labelRu,
-                distanceKm: _distanceKm,
-                previewCo2Grams: co2,
-              ),
-            ),
-          ),
-          const SizedBox(height: 18),
-          Text(
-            'Выбор активности',
-            style: EcoTypography.headlineLarge.copyWith(
-              fontSize: 22,
-              fontWeight: .w400,
-            ),
-          ),
-          const SizedBox(height: 10),
-          _CalcActivityTile(
-            label: 'Прогулка',
-            icon: LucideIcons.footprints,
-            selected: _selected == .walk,
-            height: 82,
-            onTap: () => setState(() => _selected = .walk),
-          ),
-          const SizedBox(height: 10),
-          Row(
-            children: [
-              Expanded(
-                child: _CalcActivityTile(
-                  label: 'Автомобиль',
-                  icon: LucideIcons.car,
-                  selected: _selected == .car,
-                  height: 132,
-                  alignIconBottom: true,
-                  onTap: () => setState(() => _selected = .car),
-                ),
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: Column(
-                  children: [
-                    _CalcActivityTile(
-                      label: 'Автобус',
-                      icon: LucideIcons.bus,
-                      selected: _selected == .bus,
-                      height: 61,
-                      onTap: () => setState(() => _selected = .bus),
-                    ),
-                    const SizedBox(height: 10),
-                    _CalcActivityTile(
-                      label: 'Метро',
-                      icon: LucideIcons.tramFront,
-                      selected: _selected == .metro,
-                      height: 61,
-                      onTap: () => setState(() => _selected = .metro),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 10),
-          Row(
-            children: [
-              Expanded(
-                child: _CalcActivityTile(
-                  label: 'Самокат',
-                  icon: LucideIcons.bike,
-                  selected: _selected == .scooter,
-                  height: 86,
-                  alignIconBottom: true,
-                  onTap: () => setState(() => _selected = .scooter),
-                ),
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: _CalcActivityTile(
-                  label: 'Другое',
-                  icon: LucideIcons.arrowRight,
-                  selected: _selected == .tram,
-                  height: 86,
-                  alignIconBottom: true,
-                  onTap: _openOtherSheet,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 14),
-          _DistanceStepperCard(
-            formattedKm: _formatKm(_distanceKm),
-            onDecrement: () => _stepDistance(-0.5),
-            onIncrement: () => _stepDistance(0.5),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-final class const _CalcPreviewCard({
-  required final int co2Grams,
-  required final String activityLabel,
-  required final String distanceLabel,
-  required final bool isSubmitting,
-  required final VoidCallback onSubmit,
-}) extends StatelessWidget {
-  @override
-  Widget build(BuildContext context) => DecoratedBox(
-    decoration: const BoxDecoration(
-      borderRadius: .all(.circular(20)),
-      border: .fromBorderSide(
-        BorderSide(color: EcoColors.inkPrimary, width: 1.5),
-      ),
-      gradient: LinearGradient(
-        colors: [EcoColors.surfacePrimary, EcoColors.surfaceCard],
-      ),
-    ),
-    child: Padding(
-      padding: const .fromLTRB(18, 16, 16, 16),
-      child: Row(
-        children: [
-          Expanded(
-            child: Column(
-              crossAxisAlignment: .start,
-              children: [
-                Text(
-                  '+$co2Grams г',
-                  style: EcoTypography.displayHero.copyWith(fontSize: 34),
-                ),
-                const SizedBox(height: 10),
-                Wrap(
-                  spacing: 8,
-                  runSpacing: 6,
-                  children: [
-                    _PreviewChip(text: activityLabel),
-                    _PreviewChip(text: distanceLabel),
-                  ],
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(width: 10),
-          Tooltip(
-            message: 'Записать активность',
-            child: SizedBox(
-              width: 56,
-              height: 56,
-              child: Material(
-                color: const Color(0xFFB5B5B5),
-                shape: const CircleBorder(),
-                child: InkWell(
-                  onTap: isSubmitting ? null : onSubmit,
-                  customBorder: const CircleBorder(),
-                  child: Center(
-                    child: isSubmitting
-                        ? const SizedBox(
-                            width: 20,
-                            height: 20,
-                            child: CircularProgressIndicator(
-                              strokeWidth: 2,
-                              color: EcoColors.inkPrimary,
-                            ),
-                          )
-                        : const Icon(
-                            LucideIcons.plus,
-                            size: 26,
-                            color: EcoColors.inkPrimary,
-                          ),
-                  ),
-                ),
-              ),
-            ),
-          ),
-        ],
-      ),
-    ),
-  );
-}
-
-final class const _PreviewChip({required final String text})
-    extends StatelessWidget {
-  @override
-  Widget build(BuildContext context) => DecoratedBox(
-    decoration: const BoxDecoration(
-      borderRadius: .all(.circular(12)),
-      border: .fromBorderSide(
-        BorderSide(color: EcoColors.inkPrimary, width: 1.2),
-      ),
-    ),
-    child: Padding(
-      padding: const .symmetric(horizontal: 14, vertical: 5),
-      child: Text(
-        text,
-        style: EcoTypography.labelSmall.copyWith(color: EcoColors.inkPrimary),
-      ),
-    ),
-  );
-}
-
-final class const _CalcActivityTile({
-  required final String label,
-  required final IconData icon,
-  required final bool selected,
-  required final double height,
-  final bool alignIconBottom = false,
-  required final VoidCallback onTap,
-}) extends StatelessWidget {
-  @override
-  Widget build(BuildContext context) => SizedBox(
-    height: height,
-    child: Material(
-      color: EcoColors.surfaceCard,
-      shape: RoundedRectangleBorder(
-        borderRadius: const .all(.circular(20)),
-        side: selected
-            ? const BorderSide(color: EcoColors.inkPrimary, width: 1.8)
-            : .none,
-      ),
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: const .all(.circular(20)),
-        child: Padding(
-          padding: const .symmetric(horizontal: 16, vertical: 14),
-          child: alignIconBottom
-              ? Column(
-                  crossAxisAlignment: .start,
-                  mainAxisAlignment: .spaceBetween,
-                  children: [
-                    Text(
-                      label,
-                      style: EcoTypography.bodyLarge.copyWith(
-                        fontWeight: .w500,
-                      ),
-                    ),
-                    Align(
-                      alignment: .bottomRight,
-                      child: Icon(icon, size: 34, color: EcoColors.inkPrimary),
-                    ),
-                  ],
-                )
-              : Row(
-                  mainAxisAlignment: .spaceBetween,
-                  children: [
-                    Expanded(
-                      child: Text(
-                        label,
-                        style: EcoTypography.bodyLarge.copyWith(
-                          fontWeight: .w500,
-                        ),
-                      ),
-                    ),
-                    Icon(icon, size: 32, color: EcoColors.inkPrimary),
-                  ],
-                ),
-        ),
-      ),
-    ),
-  );
-}
-
-final class const _DistanceStepperCard({
-  required final String formattedKm,
-  required final VoidCallback onDecrement,
-  required final VoidCallback onIncrement,
-}) extends StatelessWidget {
-  @override
-  Widget build(BuildContext context) => DecoratedBox(
-    decoration: const BoxDecoration(
-      color: EcoColors.surfaceCard,
-      borderRadius: .all(.circular(20)),
-    ),
-    child: Padding(
-      padding: const .fromLTRB(20, 14, 20, 16),
-      child: Column(
-        children: [
-          Text(
-            'Расстояние',
-            style: EcoTypography.titleMedium.copyWith(fontWeight: .w400),
-          ),
-          const SizedBox(height: 10),
-          Row(
-            mainAxisAlignment: .spaceEvenly,
-            children: [
-              _StepperCircleButton(
-                icon: LucideIcons.minus,
-                tooltip: 'Уменьшить на 0,5 км',
-                onTap: onDecrement,
-              ),
-              Column(
-                children: [
-                  Text(
-                    formattedKm,
-                    style: EcoTypography.displayHero.copyWith(fontSize: 34),
-                  ),
-                  const Text('км', style: EcoTypography.bodyMedium),
-                ],
-              ),
-              _StepperCircleButton(
-                icon: LucideIcons.plus,
-                tooltip: 'Увеличить на 0,5 км',
-                onTap: onIncrement,
-              ),
-            ],
-          ),
-        ],
-      ),
-    ),
-  );
-}
-
-final class const _StepperCircleButton({
-  required final IconData icon,
-  required final String tooltip,
-  required final VoidCallback onTap,
-}) extends StatelessWidget {
-  @override
-  Widget build(BuildContext context) => Tooltip(
-    message: tooltip,
-    child: SizedBox(
-      width: 48,
-      height: 48,
-      child: Material(
-        color: const Color(0xFFB5B5B5),
-        shape: const CircleBorder(),
-        child: InkWell(
-          onTap: onTap,
-          customBorder: const CircleBorder(),
-          child: Icon(icon, size: 22, color: EcoColors.inkPrimary),
-        ),
-      ),
-    ),
-  );
+  List<int>? _decodeBytes(Object? raw) =>
+      raw is String ? base64Decode(raw) : null;
 }

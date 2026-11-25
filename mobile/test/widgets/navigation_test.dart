@@ -21,8 +21,10 @@ import 'package:ecotrack_mobile/features/auth_fz152/presentation/auth_bloc.dart'
 import 'package:ecotrack_mobile/features/auth_fz152/presentation/onboarding_screen.dart';
 import 'package:ecotrack_mobile/features/map_activity/domain/map_models.dart';
 import 'package:ecotrack_mobile/features/profile_social/domain/profile_models.dart';
+import 'package:ecotrack_mobile/features/shop/domain/shop_models.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:go_router/go_router.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
@@ -348,6 +350,49 @@ final class _StubMapActivityRepo() implements MapActivityRepository {
   getLastKnownOrCurrentPosition() async => null;
 }
 
+final class _StubShopRepo() implements ShopRepository {
+  @override
+  Future<Result<ShopCatalogResponse, AppError>> getCatalog({
+    String? category,
+    ShopItemType? itemType,
+    String? search,
+  }) async => const Ok(
+    ShopCatalogResponse(
+      fictionalShopBannerRu: ShopCatalogResponse.defaultBannerRu,
+      categories: ['Все'],
+      items: [],
+    ),
+  );
+
+  @override
+  Future<Result<ShopOrderDetail, AppError>> createOrder(
+    List<({String shopItemId, int quantity})> items,
+  ) async => Err(AppError.fromCode('INTERNAL_SERVER_ERROR'));
+
+  @override
+  Future<Result<ShopOrderListResponse, AppError>> getMyOrders({
+    int limit = 20,
+    int offset = 0,
+  }) async => const Ok(ShopOrderListResponse(totalCount: 0, orders: []));
+
+  @override
+  Future<Result<PointLedgerListResponse, AppError>> getPointLedger({
+    int limit = 20,
+    int offset = 0,
+  }) async => const Ok(
+    PointLedgerListResponse(
+      pointsBalance: 150,
+      lifetimePointsEarned: 300,
+      totalCount: 0,
+      items: [],
+    ),
+  );
+
+  @override
+  Future<Result<UserProfile, AppError>> activateStreakFreeze() async =>
+      Ok(_sampleProfile());
+}
+
 void main() {
   late AppDependencies deps;
 
@@ -463,7 +508,7 @@ void main() {
             friendsRepository: deps.friendsRepository,
             mapActivityRepository: _StubMapActivityRepo(),
             statsRepository: deps.statsRepository,
-            shopRepository: deps.shopRepository,
+            shopRepository: _StubShopRepo(),
           ),
         );
         final authBloc = AuthBloc(_StubAuthRepo(), stubProfileRepo)
@@ -477,10 +522,17 @@ void main() {
 
         expect(find.byType(FloatingBottomNavBar), findsOneWidget);
         expect(find.byTooltip('Статистика'), findsOneWidget);
-        expect(find.byTooltip('Калькулятор'), findsOneWidget);
+        expect(find.byTooltip('Карта'), findsOneWidget);
         expect(find.byTooltip('Главная'), findsOneWidget);
         expect(find.byTooltip('Магазин'), findsOneWidget);
         expect(find.byTooltip('Профиль'), findsOneWidget);
+
+        final navContext = tester.element(find.byType(FloatingBottomNavBar));
+        GoRouter.of(navContext).go('/shop/cart');
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 250));
+        expect(find.text('Корзина'), findsOneWidget);
+        expect(find.byType(FloatingBottomNavBar).hitTestable(), findsNothing);
 
         final listenable = AuthRouterListenable(authBloc);
         final router = AppRouter.createRouter(

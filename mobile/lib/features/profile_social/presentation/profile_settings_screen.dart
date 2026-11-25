@@ -12,7 +12,10 @@ import 'package:go_router/go_router.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:material_ui/material_ui.dart';
 
-final class const ProfileSettingsScreen({super.key}) extends StatefulWidget {
+final class const ProfileSettingsScreen({
+  final Future<void> Function(BuildContext context)? onReadPolicy,
+  super.key,
+}) extends StatefulWidget {
   @override
   State<ProfileSettingsScreen> createState() => _ProfileSettingsScreenState();
 }
@@ -87,7 +90,10 @@ final class _ProfileSettingsScreenState() extends State<ProfileSettingsScreen> {
         shape: const RoundedRectangleBorder(
           borderRadius: .vertical(top: .circular(28)),
         ),
-        builder: (_) => _ConsentJournalSheet(consents: consents),
+        builder: (_) => _ConsentJournalSheet(
+          consents: consents,
+          onReadPolicy: widget.onReadPolicy,
+        ),
       );
 
   Future<void> _confirmRevokeConsent() async {
@@ -811,7 +817,45 @@ final class const _SettingsMenuRow({
 
 final class const _ConsentJournalSheet({
   required final ConsentHistoryListResponse consents,
+  final Future<void> Function(BuildContext context)? onReadPolicy,
 }) extends StatelessWidget {
+  Future<void> _showFallbackPolicySheet(BuildContext context) =>
+      showModalBottomSheet<void>(
+        context: context,
+        isScrollControlled: true,
+        backgroundColor: EcoColors.surfacePrimary,
+        shape: const RoundedRectangleBorder(
+          borderRadius: .vertical(top: .circular(28)),
+        ),
+        builder: (sheetCtx) => SafeArea(
+          child: ListView(
+            shrinkWrap: true,
+            padding: const .fromLTRB(20, 16, 20, 24),
+            children: [
+              const Text(
+                'Политика конфиденциальности (152-ФЗ)',
+                style: EcoTypography.titleMedium,
+              ),
+              const SizedBox(height: 6),
+              const Text(
+                'Версия политики: 1.0.0-2026',
+                style: EcoTypography.labelSmall,
+              ),
+              const SizedBox(height: 12),
+              const Text(
+                'Первичная обработка и хранение ПДн осуществляются на территории РФ в соответствии со 152-ФЗ.',
+                style: EcoTypography.bodyMedium,
+              ),
+              const SizedBox(height: 16),
+              ElevatedButton(
+                onPressed: () => Navigator.of(sheetCtx).pop(),
+                child: const Text('Закрыть'),
+              ),
+            ],
+          ),
+        ),
+      );
+
   @override
   Widget build(BuildContext context) => SafeArea(
     child: Padding(
@@ -831,7 +875,18 @@ final class const _ConsentJournalSheet({
                 : 'Текущий статус: Согласие отозвано',
             style: EcoTypography.bodyMedium,
           ),
-          const SizedBox(height: 12),
+          const SizedBox(height: 6),
+          Align(
+            alignment: .centerLeft,
+            child: TextButton(
+              onPressed: () => unawaited(
+                onReadPolicy?.call(context) ??
+                    _showFallbackPolicySheet(context),
+              ),
+              child: const Text('Читать полный текст согласия 152-ФЗ'),
+            ),
+          ),
+          const SizedBox(height: 8),
           if (consents.entries.isEmpty)
             const Text(
               'Записей в журнале пока нет.',
@@ -889,8 +944,12 @@ final class const _DeleteAccountSheet() extends StatefulWidget {
 
 final class _DeleteAccountSheetState() extends State<_DeleteAccountSheet> {
   static const String _requiredPhrase = 'DELETE_MY_DATA_152FZ';
+  static const String _defaultReason =
+      'Отзыв согласия и удаление по ст. 21 152-ФЗ';
 
-  final TextEditingController _reasonController = TextEditingController();
+  final TextEditingController _reasonController = TextEditingController(
+    text: _defaultReason,
+  );
   final TextEditingController _phraseController = TextEditingController();
   bool _confirmedStepOne = false;
 
@@ -909,6 +968,9 @@ final class _DeleteAccountSheetState() extends State<_DeleteAccountSheet> {
       final loaded = state is ProfileSettingsLoaded ? state : null;
       final receipt = loaded?.deletionReceipt;
       final isSaving = loaded?.isSaving ?? false;
+      final trimmedReason = _reasonController.text.trim();
+      final isReasonValid =
+          trimmedReason.length >= 3 && trimmedReason.length <= 128;
 
       if (receipt != null) {
         return SafeArea(
@@ -980,8 +1042,14 @@ final class _DeleteAccountSheetState() extends State<_DeleteAccountSheet> {
               ] else ...[
                 TextField(
                   controller: _reasonController,
-                  decoration: const InputDecoration(
-                    labelText: 'Причина удаления (опционально)',
+                  maxLength: 128,
+                  onChanged: (_) => setState(() {}),
+                  decoration: InputDecoration(
+                    labelText: 'Причина удаления',
+                    helperText: 'Минимум 3 символа',
+                    errorText: trimmedReason.length < 3
+                        ? 'Минимум 3 символа'
+                        : null,
                   ),
                 ),
                 const SizedBox(height: 10),
@@ -995,11 +1063,12 @@ final class _DeleteAccountSheetState() extends State<_DeleteAccountSheet> {
                 const SizedBox(height: 16),
                 ElevatedButton(
                   onPressed:
-                      _phraseController.text.trim() == _requiredPhrase &&
+                      isReasonValid &&
+                          _phraseController.text.trim() == _requiredPhrase &&
                           !isSaving
                       ? () => unawaited(
                           context.read<ProfileSettingsCubit>().deleteAccount(
-                            _reasonController.text.trim(),
+                            trimmedReason,
                             _requiredPhrase,
                           ),
                         )

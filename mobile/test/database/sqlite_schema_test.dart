@@ -2,6 +2,8 @@ import 'dart:io';
 
 import 'package:ecotrack_mobile/core/database/outbox_dispatcher.dart';
 import 'package:ecotrack_mobile/core/database/sqlite_database.dart';
+import 'package:ecotrack_mobile/features/profile_social/data/profile_sqlite_dao.dart';
+import 'package:ecotrack_mobile/features/profile_social/domain/profile_models.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
@@ -247,5 +249,44 @@ void main() {
         expect(rows.single['status'], equals('pending'));
       },
     );
+
+    test('ProfileSqliteDao.cacheBadges persists rewardPoints: 250 without CHECK constraint failure', () async {
+      final dispatcher = OutboxDispatcher(db: SqliteDatabase.instance);
+      final dao = ProfileSqliteDao(SqliteDatabase.instance, dispatcher);
+      const badge = BadgeCatalogProgressItem(
+        code: 'eco_warrior_250',
+        titleRu: 'Эко-воин',
+        descriptionRu: 'Сохраните 10 кг CO2',
+        iconVectorKey: 'badge_co2',
+        thresholdType: 'co2_grams_total',
+        thresholdValue: 10000,
+        currentValue: 10000,
+        rewardPoints: 250,
+        isUnlocked: true,
+        rewardAccessoryCode: 'firefly_aura',
+        awardedAt: '2026-11-25T12:00:00Z',
+      );
+      await dao.cacheBadges(
+        const BadgesListResponse(
+          unlockedCount: 1,
+          totalCount: 1,
+          badges: [badge],
+        ),
+      );
+
+      final cached = await dao.getCachedBadges();
+      expect(cached, isNotNull);
+      expect(cached?.unlockedCount, equals(1));
+      expect(cached?.totalCount, equals(1));
+      expect(cached?.badges.length, equals(1));
+      final restored = cached?.badges.first;
+      expect(restored?.code, equals('eco_warrior_250'));
+      expect(restored?.rewardPoints, equals(250));
+      expect(restored?.isUnlocked, isTrue);
+      expect(restored?.thresholdType, equals('co2_grams_total'));
+      expect(restored?.rewardAccessoryCode, equals('firefly_aura'));
+      expect(restored?.awardedAt, equals('2026-11-25T12:00:00Z'));
+      dispatcher.dispose();
+    });
   });
 }

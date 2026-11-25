@@ -697,11 +697,14 @@ final class MapRepositoryImpl(
               (p) => p.seqNo >= input.startSeqNo && p.seqNo <= input.endSeqNo,
             )
             .toList();
+        final intervalPts = trackPoints.where(
+          (p) => p.seqNo > input.startSeqNo && p.seqNo <= input.endSeqNo,
+        );
         final distM = math.max(
           1.0,
-          segmentPts.fold<double>(0.0, (acc, p) => acc + p.deltaDistanceM),
+          intervalPts.fold<double>(0.0, (acc, p) => acc + p.deltaDistanceM),
         );
-        final steps = segmentPts.fold<int>(0, (acc, p) => acc + p.deltaSteps);
+        final steps = intervalPts.fold<int>(0, (acc, p) => acc + p.deltaSteps);
         final rate =
             presets[input.replacedTransportMode.wireName] ??
             input.replacedTransportMode.defaultCo2GramsPerMeter;

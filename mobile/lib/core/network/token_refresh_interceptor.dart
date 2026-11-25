@@ -7,6 +7,7 @@ final class TokenRefreshInterceptor({
   required final Dio bareRefreshDio,
   final void Function()? onForceLogout,
 }) extends QueuedInterceptorsWrapper {
+  static const String forceLogoutNotifiedKey = '_forceLogoutNotified';
   static const String _retriedFlag = '_retriedAfterRefresh';
   static const String _refreshPath = '/api/v1/auth/refresh';
   static const String _exchangePath = '/api/v1/auth/oauth/exchange';
@@ -30,8 +31,7 @@ final class TokenRefreshInterceptor({
 
     final errorCode = _extractErrorCode(err.response?.data);
     if (errorCode != 'AUTH_TOKEN_EXPIRED') {
-      await _forceLogout();
-      handler.next(err);
+      handler.next(await _forceLogoutAndTag(err));
       return;
     }
 
@@ -53,8 +53,7 @@ final class TokenRefreshInterceptor({
 
     final refreshToken = await tokenStore.getRefreshToken();
     if (refreshToken == null || refreshToken.isEmpty) {
-      await _forceLogout();
-      handler.next(err);
+      handler.next(await _forceLogoutAndTag(err));
       return;
     }
 
@@ -69,8 +68,7 @@ final class TokenRefreshInterceptor({
       );
       final tokens = _parseTokenPair(refreshResponse.data);
       if (tokens == null) {
-        await _forceLogout();
-        handler.next(err);
+        handler.next(await _forceLogoutAndTag(err));
         return;
       }
 
@@ -84,11 +82,9 @@ final class TokenRefreshInterceptor({
         handler: handler,
       );
     } on DioException catch (refreshErr) {
-      await _forceLogout();
-      final nextErr = refreshErr.response != null
-          ? err.copyWith(response: refreshErr.response)
-          : err;
-      handler.next(nextErr);
+      handler.next(
+        await _forceLogoutAndTag(err, overrideResponse: refreshErr.response),
+      );
     }
   }
 
@@ -115,9 +111,20 @@ final class TokenRefreshInterceptor({
     }
   }
 
-  Future<void> _forceLogout() async {
+  Future<DioException> _forceLogoutAndTag(
+    DioException err, {
+    Response<Object?>? overrideResponse,
+  }) async {
     await tokenStore.clearTokens();
-    onForceLogout?.call();
+    if (err.requestOptions.extra[forceLogoutNotifiedKey] != true) {
+      onForceLogout?.call();
+    }
+    final nextExtra = Map<String, Object?>.of(err.requestOptions.extra);
+    nextExtra[forceLogoutNotifiedKey] = true;
+    return err.copyWith(
+      requestOptions: err.requestOptions.copyWith(extra: nextExtra),
+      response: overrideResponse ?? err.response,
+    );
   }
 
   static String? _extractErrorCode(Object? data) {

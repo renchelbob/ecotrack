@@ -19,8 +19,8 @@ final class FriendsRepositoryImpl(
     r'^ECO-[A-Z0-9]{4}-[A-Z0-9]{4}$',
   );
 
-  late final FriendsSqliteDao _friendsDao = FriendsSqliteDao(_db);
-  late final ProfileSqliteDao _profileDao = ProfileSqliteDao(_db);
+  late final FriendsSqliteDao _friendsDao = FriendsSqliteDao(_db, _outbox);
+  late final ProfileSqliteDao _profileDao = ProfileSqliteDao(_db, _outbox);
 
   @override
   Future<Result<FriendsOverviewResponse, AppError>> getFriendsOverview() async {

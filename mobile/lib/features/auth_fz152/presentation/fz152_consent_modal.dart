@@ -6,6 +6,7 @@ import 'package:ecotrack_mobile/core/theme/eco_colors.dart';
 import 'package:ecotrack_mobile/core/theme/eco_typography.dart';
 import 'package:ecotrack_mobile/features/auth_fz152/domain/auth_models.dart';
 import 'package:ecotrack_mobile/features/auth_fz152/presentation/auth_bloc.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:material_ui/material_ui.dart';
@@ -364,10 +365,12 @@ final class _GoogleFormalPhoneModalScreenState()
 
   void _submit() {
     final e164 = _normalizeToE164(_phoneController.text);
-    if (!RegExp(r'^\+[1-9][0-9]{7,14}$').hasMatch(e164)) {
+    final isValidE164 = RegExp(r'^\+[1-9][0-9]{7,14}$').hasMatch(e164);
+    final isCompleteRu = !e164.startsWith('+7') || e164.length == 12;
+    if (!isValidE164 || !isCompleteRu) {
       setState(
         () => _localValidationError =
-            'Введите номер в формате +7 (999) 123-45-67 или E.164',
+            'Введите номер в формате +7 (999) 123-45-67',
       );
       return;
     }
@@ -415,6 +418,7 @@ final class _GoogleFormalPhoneModalScreenState()
                 TextField(
                   controller: _phoneController,
                   keyboardType: TextInputType.phone,
+                  inputFormatters: const [_RuPhoneMaskFormatter()],
                   onChanged: _onPhoneChanged,
                   decoration: const InputDecoration(
                     labelText: 'Контактный телефон',
@@ -482,4 +486,92 @@ final class const _InlineErrorCallout({required final String message})
       ),
     ],
   );
+}
+
+final class const _RuPhoneMaskFormatter() extends TextInputFormatter {
+  @override
+  TextEditingValue formatEditUpdate(
+    TextEditingValue oldValue,
+    TextEditingValue newValue,
+  ) {
+    final national = _extractNationalDigits(oldValue.text, newValue.text);
+    final formatted = _formatNationalDigits(national);
+    final digitsBefore = _countNationalDigitsBefore(
+      oldValue.text,
+      newValue.text,
+      newValue.selection.extentOffset,
+    );
+    final cursorOffset = _cursorOffsetForDigits(formatted, digitsBefore);
+    return TextEditingValue(
+      text: formatted,
+      selection: .collapsed(offset: cursorOffset),
+    );
+  }
+
+  static String _extractNationalDigits(String oldText, String newText) {
+    var digits = newText.replaceAll(RegExp('[^0-9]'), '');
+    if (digits.isEmpty) {
+      return '';
+    }
+    if (digits.length == 11 &&
+        (digits.startsWith('7') || digits.startsWith('8'))) {
+      digits = digits.substring(1);
+    } else if (oldText.startsWith('+7') && digits.startsWith('7')) {
+      digits = digits.substring(1);
+    } else if (digits.startsWith('8') && digits.length > 1) {
+      digits = digits.substring(1);
+    }
+    return digits.length > 10 ? digits.substring(0, 10) : digits;
+  }
+
+  static String _formatNationalDigits(String national) {
+    if (national.isEmpty) {
+      return '+7';
+    }
+    if (national.length <= 3) {
+      return '+7 ($national';
+    }
+    if (national.length <= 6) {
+      return '+7 (${national.substring(0, 3)}) ${national.substring(3)}';
+    }
+    if (national.length <= 8) {
+      return '+7 (${national.substring(0, 3)}) '
+          '${national.substring(3, 6)}-${national.substring(6)}';
+    }
+    return '+7 (${national.substring(0, 3)}) '
+        '${national.substring(3, 6)}-${national.substring(6, 8)}-${national.substring(8)}';
+  }
+
+  static int _countNationalDigitsBefore(
+    String oldText,
+    String newText,
+    int extentOffset,
+  ) {
+    final safeEnd = extentOffset.clamp(0, newText.length);
+    var prefixDigits = newText
+        .substring(0, safeEnd)
+        .replaceAll(RegExp('[^0-9]'), '');
+    if ((oldText.startsWith('+7') || newText.startsWith('+7')) &&
+        prefixDigits.startsWith('7')) {
+      prefixDigits = prefixDigits.substring(1);
+    }
+    return prefixDigits.length.clamp(0, 10);
+  }
+
+  static int _cursorOffsetForDigits(String formatted, int targetDigits) {
+    if (targetDigits <= 0) {
+      return formatted.length >= 2 ? 2 : formatted.length;
+    }
+    var seen = 0;
+    for (var i = 2; i < formatted.length; i++) {
+      final code = formatted.codeUnitAt(i);
+      if (code >= 48 && code <= 57) {
+        seen++;
+        if (seen >= targetDigits) {
+          return i + 1;
+        }
+      }
+    }
+    return formatted.length;
+  }
 }

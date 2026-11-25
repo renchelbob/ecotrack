@@ -205,18 +205,33 @@ final class const _EmissionsOverviewCard({
 final class const _StackedEmissionsBarChart({
   required final List<EmissionsBucketItem> buckets,
   final bool interactive = false,
+  final double? averageY,
 }) extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
-    final maxY = buckets.fold<double>(
+    final baseMaxY = buckets.fold<double>(
       100.0,
       (acc, b) => math.max(acc, b.totalCo2SavedGrams.toDouble() * 1.15),
     );
+    final avg = averageY;
+    final maxY = avg != null ? math.max(baseMaxY, avg * 1.15) : baseMaxY;
     return BarChart(
       BarChartData(
         maxY: maxY,
         gridData: const FlGridData(show: false),
         borderData: FlBorderData(show: false),
+        extraLinesData: avg == null
+            ? const ExtraLinesData()
+            : ExtraLinesData(
+                horizontalLines: [
+                  HorizontalLine(
+                    y: avg,
+                    color: EcoColors.inkPrimary,
+                    strokeWidth: 1.5,
+                    dashArray: const [4, 4],
+                  ),
+                ],
+              ),
         barTouchData: BarTouchData(
           enabled: interactive,
           touchTooltipData: BarTouchTooltipData(
@@ -425,49 +440,58 @@ final class const _EquivalentsBentoGrid({
     ),
     child: Padding(
       padding: const .all(14),
-      child: Column(
-        children: [
-          _EquivalentCardTile(
-            title: 'Лес',
-            metricText:
-                '${metrics.treesPlantedEquivalent.toStringAsFixed(2)} дерева',
-            subtitle: 'Поглощают столько же CO₂ в год',
-            bgColor: EcoColors.eqForestBg,
-            inkColor: EcoColors.eqForestInk,
-            icon: LucideIcons.trees,
-            onTap: () => context.push('/stats/equivalents/forest'),
-          ),
-          const SizedBox(height: 10),
-          Row(
-            children: [
-              Expanded(
-                child: _EquivalentCardTile(
-                  title: 'Бензин и Авто',
-                  metricText:
-                      '${metrics.carKmAvoided.toStringAsFixed(1)} км на авто',
-                  subtitle:
-                      'Не сожжено ${metrics.gasolineLitersSaved.toStringAsFixed(2)} л топлива',
-                  bgColor: EcoColors.eqFuelBg,
-                  inkColor: EcoColors.eqFuelInk,
-                  icon: LucideIcons.fuel,
-                  onTap: () => context.push('/stats/equivalents/fuel'),
-                ),
+      child: IntrinsicHeight(
+        child: Row(
+          crossAxisAlignment: .stretch,
+          children: [
+            Expanded(
+              child: _EquivalentCardTile(
+                title: 'Лес',
+                metricText:
+                    '${metrics.treesPlantedEquivalent.toStringAsFixed(2)} дерева',
+                subtitle: 'Поглощают столько же CO₂ в год',
+                bgColor: EcoColors.eqForestBg,
+                inkColor: EcoColors.eqForestInk,
+                icon: LucideIcons.trees,
+                onTap: () => context.push('/stats/equivalents/forest'),
               ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: _EquivalentCardTile(
-                  title: 'Воздух и Энергия',
-                  metricText: '${metrics.smartphoneChargesEquivalent} зарядок',
-                  subtitle: 'Или ${metrics.ledBulbHoursEquivalent} ч LED-лампы',
-                  bgColor: EcoColors.eqAirBg,
-                  inkColor: EcoColors.eqAirInk,
-                  icon: LucideIcons.wind,
-                  onTap: () => context.push('/stats/equivalents/air'),
-                ),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: .stretch,
+                children: [
+                  Expanded(
+                    child: _EquivalentCardTile(
+                      title: 'Бензин',
+                      metricText:
+                          '${metrics.gasolineLitersSaved.toStringAsFixed(2)} л',
+                      subtitle:
+                          'Избежано ${metrics.carKmAvoided.toStringAsFixed(1)} км на авто',
+                      bgColor: EcoColors.eqFuelBg,
+                      inkColor: EcoColors.eqFuelInk,
+                      icon: LucideIcons.fuel,
+                      onTap: () => context.push('/stats/equivalents/gasoline'),
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  Expanded(
+                    child: _EquivalentCardTile(
+                      title: 'Воздух',
+                      metricText:
+                          '${metrics.smartphoneChargesEquivalent} зарядок',
+                      subtitle: 'Или ${metrics.ledBulbHoursEquivalent} ч LED',
+                      bgColor: EcoColors.eqAirBg,
+                      inkColor: EcoColors.eqAirInk,
+                      icon: LucideIcons.wind,
+                      onTap: () => context.push('/stats/equivalents/air'),
+                    ),
+                  ),
+                ],
               ),
-            ],
-          ),
-        ],
+            ),
+          ],
+        ),
       ),
     ),
   );
@@ -716,160 +740,322 @@ final class const _SharedForestCard({
   }
 }
 
-final class const EmissionsDrilldownScreen({super.key})
-    extends StatelessWidget {
+final class const _PeriodSwitcherRow({
+  required final String selectedPeriod,
+  required final ValueChanged<String> onSelected,
+}) extends StatelessWidget {
+  static const List<(String, String)> _periods = [
+    ('days', 'Дни'),
+    ('weeks', 'Недели'),
+    ('months', 'Месяцы'),
+  ];
+
+  @override
+  Widget build(BuildContext context) => Row(
+    children: [
+      for (final (code, label) in _periods) ...[
+        Expanded(
+          child: ChoiceChip(
+            label: Center(child: Text(label)),
+            selected: selectedPeriod == code,
+            onSelected: (_) => onSelected(code),
+          ),
+        ),
+        if (code != 'months') const SizedBox(width: 8),
+      ],
+    ],
+  );
+}
+
+final class const _StatsDrilldownErrorView({
+  required final String message,
+  required final VoidCallback onRetry,
+}) extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) => Center(
+    child: Padding(
+      padding: const .all(24),
+      child: Column(
+        mainAxisSize: .min,
+        children: [
+          const Icon(
+            LucideIcons.triangleAlert,
+            size: 40,
+            color: EcoColors.inkPrimary,
+          ),
+          const SizedBox(height: 12),
+          Text(message, textAlign: .center, style: EcoTypography.bodyMedium),
+          const SizedBox(height: 16),
+          ElevatedButton(onPressed: onRetry, child: const Text('Повторить')),
+        ],
+      ),
+    ),
+  );
+}
+
+final class const EmissionsDrilldownScreen({super.key}) extends StatefulWidget {
+  @override
+  State<EmissionsDrilldownScreen> createState() =>
+      _EmissionsDrilldownScreenState();
+}
+
+final class _EmissionsDrilldownScreenState()
+    extends State<EmissionsDrilldownScreen> {
+  @override
+  void initState() {
+    super.initState();
+    final cubit = context.read<StatsCubit>();
+    if (cubit.state is StatsLoading) {
+      unawaited(cubit.loadStats());
+    }
+  }
+
   @override
   Widget build(BuildContext context) => BlocBuilder<StatsCubit, StatsState>(
     builder: (context, state) {
-      final loaded = state is StatsLoaded ? state : null;
       final cubit = context.read<StatsCubit>();
-      const periods = [
-        ('days', 'Дни'),
-        ('weeks', 'Недели'),
-        ('months', 'Месяцы'),
-      ];
-
       return Scaffold(
         backgroundColor: EcoColors.surfacePrimary,
         appBar: AppBar(title: const Text('Снижение выбросов')),
-        body: loaded == null
-            ? const Center(
-                child: CircularProgressIndicator(color: EcoColors.inkPrimary),
-              )
-            : ListView(
-                padding: const .all(16),
-                children: [
-                  Row(
-                    children: [
-                      for (final (code, label) in periods) ...[
-                        Expanded(
-                          child: ChoiceChip(
-                            label: Text(label),
-                            selected: loaded.selectedPeriod == code,
-                            onSelected: (_) =>
-                                unawaited(cubit.changePeriod(code)),
-                          ),
-                        ),
-                        if (code != 'months') const SizedBox(width: 8),
-                      ],
-                    ],
-                  ),
-                  const SizedBox(height: 16),
-                  Text(
-                    'Итого: ${loaded.emissions.periodTotalCo2SavedGrams} г CO₂ · ${loaded.emissions.periodTotalSteps} шагов',
-                    style: EcoTypography.titleMedium,
-                  ),
-                  const SizedBox(height: 12),
-                  DecoratedBox(
-                    decoration: const BoxDecoration(
-                      color: EcoColors.surfaceCard,
-                      borderRadius: .all(.circular(20)),
-                      border: .fromBorderSide(
-                        BorderSide(color: EcoColors.borderMuted, width: 1.5),
-                      ),
-                    ),
-                    child: Padding(
-                      padding: const .all(16),
-                      child: SizedBox(
-                        height: 210,
-                        child: _StackedEmissionsBarChart(
-                          buckets: loaded.emissions.buckets,
-                          interactive: true,
-                        ),
-                      ),
-                    ),
-                  ),
-                  if (loaded.emissions.transportShares.isNotEmpty) ...[
-                    const SizedBox(height: 18),
-                    const Text(
-                      'Доли замещённого транспорта',
-                      style: EcoTypography.titleMedium,
-                    ),
-                    const SizedBox(height: 12),
-                    SizedBox(
-                      height: 190,
-                      child: PieChart(
-                        PieChartData(
-                          centerSpaceRadius: 36,
-                          sections: [
-                            for (
-                              var i = 0;
-                              i < loaded.emissions.transportShares.length;
-                              i++
-                            )
-                              PieChartSectionData(
-                                value: math.max(
-                                  1.0,
-                                  loaded
-                                      .emissions
-                                      .transportShares[i]
-                                      .percentage,
-                                ),
-                                title:
-                                    '${loaded.emissions.transportShares[i].percentage.round()}%',
-                                radius: 52,
-                                color: i.isEven
-                                    ? EcoColors.inkPrimary
-                                    : EcoColors.borderMuted,
-                                titleStyle: EcoTypography.labelSmall.copyWith(
-                                  color: EcoColors.surfacePrimary,
-                                ),
-                              ),
-                          ],
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 10),
-                    for (final share in loaded.emissions.transportShares)
-                      ListTile(
-                        dense: true,
-                        title: Text(share.labelRu),
-                        trailing: Text(
-                          '${share.co2SavedGrams} г (${share.percentage.toStringAsFixed(0)}%)',
-                          style: EcoTypography.tabularMetric,
-                        ),
-                      ),
-                  ],
-                ],
-              ),
+        body: SafeArea(
+          top: false,
+          child: switch (state) {
+            StatsLoading() => const Center(
+              child: CircularProgressIndicator(color: EcoColors.inkPrimary),
+            ),
+            StatsFailure(:final error) => _StatsDrilldownErrorView(
+              message: error.uiMessageRu,
+              onRetry: () => unawaited(cubit.loadStats()),
+            ),
+            StatsLoaded() => _EmissionsDrilldownBody(loaded: state),
+          },
+        ),
       );
     },
   );
 }
 
-final class const ActivityHistoryDrilldownScreen({super.key})
+final class const _EmissionsDrilldownBody({required final StatsLoaded loaded})
     extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    final cubit = context.read<StatsCubit>();
+    final buckets = loaded.emissions.buckets;
+    final averageGrams = buckets.isEmpty
+        ? 0
+        : (buckets.fold<int>(0, (sum, b) => sum + b.totalCo2SavedGrams) /
+                  buckets.length)
+              .round();
+    final dateRangeText = buckets.isEmpty
+        ? null
+        : '${buckets.first.startDate} – ${buckets.last.endDate}';
+
+    return ListView(
+      padding: const .all(16),
+      children: [
+        _PeriodSwitcherRow(
+          selectedPeriod: loaded.selectedPeriod,
+          onSelected: (code) => unawaited(cubit.changePeriod(code)),
+        ),
+        const SizedBox(height: 16),
+        Text(
+          'Итого: ${loaded.emissions.periodTotalCo2SavedGrams} г CO₂ · ${loaded.emissions.periodTotalSteps} шагов',
+          style: EcoTypography.titleMedium,
+        ),
+        const SizedBox(height: 12),
+        DecoratedBox(
+          decoration: const BoxDecoration(
+            color: EcoColors.surfaceCard,
+            borderRadius: .all(.circular(20)),
+            border: .fromBorderSide(
+              BorderSide(color: EcoColors.borderMuted, width: 1.5),
+            ),
+          ),
+          child: Padding(
+            padding: const .all(16),
+            child: Column(
+              crossAxisAlignment: .start,
+              children: [
+                if (dateRangeText != null) ...[
+                  Text(dateRangeText, style: EcoTypography.labelSmall),
+                  const SizedBox(height: 10),
+                ],
+                DecoratedBox(
+                  decoration: BoxDecoration(
+                    borderRadius: const .all(.circular(999)),
+                    border: .all(color: EcoColors.inkPrimary, width: 1.2),
+                  ),
+                  child: Padding(
+                    padding: const .symmetric(horizontal: 10, vertical: 3),
+                    child: Text(
+                      'Среднее',
+                      style: EcoTypography.labelSmall.copyWith(
+                        color: EcoColors.inkPrimary,
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Text('$averageGrams г CO₂', style: EcoTypography.displayHero),
+                const SizedBox(height: 12),
+                SizedBox(
+                  height: 210,
+                  child: _StackedEmissionsBarChart(
+                    buckets: buckets,
+                    interactive: true,
+                    averageY: averageGrams.toDouble(),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+        if (loaded.emissions.transportShares.isNotEmpty) ...[
+          const SizedBox(height: 18),
+          const Text(
+            'Доли замещённого транспорта',
+            style: EcoTypography.titleMedium,
+          ),
+          const SizedBox(height: 12),
+          SizedBox(
+            height: 190,
+            child: PieChart(
+              PieChartData(
+                centerSpaceRadius: 36,
+                sections: [
+                  for (
+                    var i = 0;
+                    i < loaded.emissions.transportShares.length;
+                    i++
+                  )
+                    PieChartSectionData(
+                      value: math.max(
+                        1.0,
+                        loaded.emissions.transportShares[i].percentage,
+                      ),
+                      title:
+                          '${loaded.emissions.transportShares[i].percentage.round()}%',
+                      radius: 52,
+                      color: i.isEven
+                          ? EcoColors.inkPrimary
+                          : EcoColors.borderMuted,
+                      titleStyle: EcoTypography.labelSmall.copyWith(
+                        color: EcoColors.surfacePrimary,
+                      ),
+                    ),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 10),
+          for (final share in loaded.emissions.transportShares)
+            ListTile(
+              dense: true,
+              title: Text(share.labelRu),
+              trailing: Text(
+                '${share.co2SavedGrams} г (${share.percentage.toStringAsFixed(0)}%)',
+                style: EcoTypography.tabularMetric,
+              ),
+            ),
+        ],
+      ],
+    );
+  }
+}
+
+final class const ActivityHistoryDrilldownScreen({super.key})
+    extends StatefulWidget {
+  @override
+  State<ActivityHistoryDrilldownScreen> createState() =>
+      _ActivityHistoryDrilldownScreenState();
+}
+
+final class _ActivityHistoryDrilldownScreenState()
+    extends State<ActivityHistoryDrilldownScreen> {
+  @override
+  void initState() {
+    super.initState();
+    final cubit = context.read<StatsCubit>();
+    if (cubit.state is StatsLoading) {
+      unawaited(cubit.loadStats());
+    }
+  }
+
   @override
   Widget build(BuildContext context) => BlocBuilder<StatsCubit, StatsState>(
     builder: (context, state) {
-      final loaded = state is StatsLoaded ? state : null;
       final cubit = context.read<StatsCubit>();
       return Scaffold(
         backgroundColor: EcoColors.surfacePrimary,
         appBar: AppBar(title: const Text('История активности')),
-        body: loaded == null
-            ? const Center(
-                child: CircularProgressIndicator(color: EcoColors.inkPrimary),
-              )
-            : ListView.separated(
-                padding: const .all(16),
-                itemCount: loaded.history.items.length + 1,
-                separatorBuilder: (_, _) => const SizedBox(height: 8),
-                itemBuilder: (_, idx) {
-                  if (idx < loaded.history.items.length) {
-                    return _ActivityRowTile(item: loaded.history.items[idx]);
-                  }
-                  if (loaded.history.items.length < loaded.history.totalCount) {
-                    return OutlinedButton(
-                      onPressed: loaded.isLoadingMoreHistory
-                          ? null
-                          : () => unawaited(cubit.loadMoreHistory()),
-                      child: const Text('Загрузить ещё'),
-                    );
-                  }
-                  return const SizedBox.shrink();
-                },
-              ),
+        body: SafeArea(
+          top: false,
+          child: switch (state) {
+            StatsLoading() => const Center(
+              child: CircularProgressIndicator(color: EcoColors.inkPrimary),
+            ),
+            StatsFailure(:final error) => _StatsDrilldownErrorView(
+              message: error.uiMessageRu,
+              onRetry: () => unawaited(cubit.loadStats()),
+            ),
+            StatsLoaded() => Column(
+              crossAxisAlignment: .stretch,
+              children: [
+                Padding(
+                  padding: const .fromLTRB(16, 12, 16, 8),
+                  child: Column(
+                    crossAxisAlignment: .start,
+                    children: [
+                      _PeriodSwitcherRow(
+                        selectedPeriod: state.selectedPeriod,
+                        onSelected: (code) =>
+                            unawaited(cubit.changePeriod(code)),
+                      ),
+                      if (state.emissions.buckets.isNotEmpty) ...[
+                        const SizedBox(height: 10),
+                        Text(
+                          '${state.emissions.buckets.first.startDate} – ${state.emissions.buckets.last.endDate}',
+                          style: EcoTypography.labelSmall,
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+                Expanded(
+                  child: state.history.items.isEmpty
+                      ? const Center(
+                          child: Text(
+                            'Пока нет записей активности.',
+                            style: EcoTypography.bodyMedium,
+                          ),
+                        )
+                      : ListView.separated(
+                          padding: const .all(16),
+                          itemCount: state.history.items.length + 1,
+                          separatorBuilder: (_, _) => const SizedBox(height: 8),
+                          itemBuilder: (_, idx) {
+                            if (idx < state.history.items.length) {
+                              return _ActivityRowTile(
+                                item: state.history.items[idx],
+                              );
+                            }
+                            if (state.history.items.length <
+                                state.history.totalCount) {
+                              return OutlinedButton(
+                                onPressed: state.isLoadingMoreHistory
+                                    ? null
+                                    : () => unawaited(cubit.loadMoreHistory()),
+                                child: const Text('Загрузить ещё'),
+                              );
+                            }
+                            return const SizedBox.shrink();
+                          },
+                        ),
+                ),
+              ],
+            ),
+          },
+        ),
       );
     },
   );
@@ -878,17 +1064,33 @@ final class const ActivityHistoryDrilldownScreen({super.key})
 final class const EquivalentsDrilldownScreen({
   required final String kind,
   super.key,
-}) extends StatelessWidget {
+}) extends StatefulWidget {
+  @override
+  State<EquivalentsDrilldownScreen> createState() =>
+      _EquivalentsDrilldownScreenState();
+}
+
+final class _EquivalentsDrilldownScreenState()
+    extends State<EquivalentsDrilldownScreen> {
+  @override
+  void initState() {
+    super.initState();
+    final cubit = context.read<StatsCubit>();
+    if (cubit.state is StatsLoading) {
+      unawaited(cubit.loadStats());
+    }
+  }
+
   @override
   Widget build(BuildContext context) => BlocBuilder<StatsCubit, StatsState>(
     builder: (context, state) {
-      final loaded = state is StatsLoaded ? state : null;
+      final cubit = context.read<StatsCubit>();
       return DefaultTabController(
         length: 2,
         child: Scaffold(
           backgroundColor: EcoColors.surfacePrimary,
           appBar: AppBar(
-            title: Text(_titleForKind(kind)),
+            title: Text(_titleForKind(widget.kind)),
             bottom: const TabBar(
               labelColor: EcoColors.inkPrimary,
               indicatorColor: EcoColors.inkPrimary,
@@ -898,20 +1100,26 @@ final class const EquivalentsDrilldownScreen({
               ],
             ),
           ),
-          body: loaded == null
-              ? const Center(
-                  child: CircularProgressIndicator(color: EcoColors.inkPrimary),
-                )
-              : TabBarView(
-                  children: [
-                    _EquivalentsMetricsView(
-                      metrics: loaded.equivalents.lifetime,
-                    ),
-                    _EquivalentsMetricsView(
-                      metrics: loaded.equivalents.currentWeek,
-                    ),
-                  ],
-                ),
+          body: SafeArea(
+            top: false,
+            child: switch (state) {
+              StatsLoading() => const Center(
+                child: CircularProgressIndicator(color: EcoColors.inkPrimary),
+              ),
+              StatsFailure(:final error) => _StatsDrilldownErrorView(
+                message: error.uiMessageRu,
+                onRetry: () => unawaited(cubit.loadStats()),
+              ),
+              StatsLoaded() => TabBarView(
+                children: [
+                  _EquivalentsMetricsView(metrics: state.equivalents.lifetime),
+                  _EquivalentsMetricsView(
+                    metrics: state.equivalents.currentWeek,
+                  ),
+                ],
+              ),
+            },
+          ),
         ),
       );
     },
@@ -919,7 +1127,7 @@ final class const EquivalentsDrilldownScreen({
 
   static String _titleForKind(String k) => switch (k) {
     'forest' => 'Эко-эквивалент: Лес',
-    'fuel' => 'Эко-эквивалент: Бензин и Авто',
+    'gasoline' || 'fuel' => 'Эко-эквивалент: Бензин и Авто',
     _ => 'Эко-эквивалент: Воздух и Энергия',
   };
 }

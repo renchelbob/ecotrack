@@ -324,64 +324,109 @@ final class const _CatalogItemCard({
       ),
       child: Padding(
         padding: const .all(14),
-        child: Row(
-          children: [
-            Expanded(
-              child: Column(
-                crossAxisAlignment: .start,
+        child: IntrinsicHeight(
+          child: Row(
+            crossAxisAlignment: .stretch,
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: .start,
+                  mainAxisAlignment: .center,
+                  children: [
+                    Text(item.title, style: EcoTypography.titleMedium),
+                    const SizedBox(height: 4),
+                    Text(
+                      item.partner?.name ?? item.subtitle,
+                      style: EcoTypography.bodyMedium,
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      item.stockQuantity == null
+                          ? 'Виртуальный товар'
+                          : 'Осталось: ${item.stockQuantity} шт.',
+                      style: EcoTypography.labelSmall,
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 10),
+              const CustomPaint(
+                size: Size(1, double.infinity),
+                painter: _VerticalDashedDividerPainter(),
+              ),
+              const SizedBox(width: 10),
+              Column(
+                mainAxisAlignment: .center,
                 children: [
-                  Text(item.title, style: EcoTypography.titleMedium),
-                  const SizedBox(height: 4),
-                  Text(
-                    item.partner?.name ?? item.subtitle,
-                    style: EcoTypography.bodyMedium,
+                  DecoratedBox(
+                    decoration: const BoxDecoration(
+                      color: EcoColors.surfaceSubtle,
+                      borderRadius: .all(.circular(12)),
+                    ),
+                    child: Padding(
+                      padding: const .symmetric(horizontal: 12, vertical: 6),
+                      child: Text(
+                        '${item.pricePoints} ★',
+                        style: EcoTypography.tabularMetric,
+                      ),
+                    ),
                   ),
-                  const SizedBox(height: 4),
-                  Text(
-                    item.stockQuantity == null
-                        ? 'Виртуальный товар'
-                        : 'Осталось: ${item.stockQuantity} шт.',
-                    style: EcoTypography.labelSmall,
+                  const SizedBox(height: 8),
+                  ElevatedButton(
+                    onPressed: onAdd,
+                    child: const Icon(LucideIcons.plus, size: 18),
                   ),
                 ],
               ),
-            ),
-            const SizedBox(width: 12),
-            Column(
-              children: [
-                DecoratedBox(
-                  decoration: const BoxDecoration(
-                    color: EcoColors.surfaceSubtle,
-                    borderRadius: .all(.circular(12)),
-                  ),
-                  child: Padding(
-                    padding: const .symmetric(horizontal: 12, vertical: 6),
-                    child: Text(
-                      '${item.pricePoints} ★',
-                      style: EcoTypography.tabularMetric,
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 8),
-                ElevatedButton(
-                  onPressed: onAdd,
-                  child: const Icon(LucideIcons.plus, size: 18),
-                ),
-              ],
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     ),
   );
 }
 
-final class const CartScreen({super.key}) extends StatelessWidget {
+final class const _VerticalDashedDividerPainter() extends CustomPainter {
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()
+      ..color = EcoColors.borderMuted
+      ..strokeWidth = 1.5;
+    const dash = 4.0;
+    const gap = 4.0;
+    var y = 0.0;
+    while (y < size.height) {
+      final end = (y + dash).clamp(0.0, size.height);
+      canvas.drawLine(Offset(0, y), Offset(0, end), paint);
+      y += dash + gap;
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _VerticalDashedDividerPainter oldDelegate) =>
+      false;
+}
+
+final class const CartScreen({super.key}) extends StatefulWidget {
+  @override
+  State<CartScreen> createState() => _CartScreenState();
+}
+
+final class _CartScreenState() extends State<CartScreen> {
+  @override
+  void initState() {
+    super.initState();
+    final bloc = context.read<ShopBloc>();
+    if (bloc.state is ShopLoading) {
+      bloc.add(const ShopCatalogRequested());
+    }
+  }
+
   @override
   Widget build(BuildContext context) => BlocBuilder<ShopBloc, ShopState>(
     builder: (context, state) {
-      final loaded = state is ShopLoaded ? state : null;
       final bloc = context.read<ShopBloc>();
+      final loaded = state is ShopLoaded ? state : null;
       final cart = loaded?.cart ?? const <CartLine>[];
       final balance = loaded?.pointsBalance ?? 0;
       final total = loaded?.cartTotalPoints ?? 0;
@@ -400,109 +445,138 @@ final class const CartScreen({super.key}) extends StatelessWidget {
               ),
           ],
         ),
-        body: cart.isEmpty
-            ? const Center(
-                child: Text('Корзина пуста', style: EcoTypography.bodyMedium),
-              )
-            : Column(
-                children: [
-                  Expanded(
-                    child: ListView.separated(
-                      padding: const .all(16),
-                      itemCount: cart.length,
-                      separatorBuilder: (_, _) => const SizedBox(height: 10),
-                      itemBuilder: (_, idx) {
-                        final line = cart[idx];
-                        return DecoratedBox(
-                          decoration: const BoxDecoration(
-                            color: EcoColors.surfaceCard,
-                            borderRadius: .all(.circular(18)),
-                          ),
-                          child: Padding(
-                            padding: const .all(12),
-                            child: Row(
-                              children: [
-                                Expanded(
-                                  child: Column(
-                                    crossAxisAlignment: .start,
-                                    children: [
-                                      Text(
-                                        line.item.title,
-                                        style: EcoTypography.bodyLarge,
-                                      ),
-                                      Text(
-                                        '${line.item.pricePoints} ★ × ${line.quantity} = ${line.item.pricePoints * line.quantity} ★',
-                                        style: EcoTypography.labelSmall,
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                                IconButton(
-                                  onPressed: () => bloc.add(
-                                    ShopCartQuantityChanged(
-                                      line.item.id,
-                                      line.quantity - 1,
-                                    ),
-                                  ),
-                                  icon: const Icon(LucideIcons.minus),
-                                ),
-                                Text(
-                                  '${line.quantity}',
-                                  style: EcoTypography.tabularMetric,
-                                ),
-                                IconButton(
-                                  onPressed: () => bloc.add(
-                                    ShopCartQuantityChanged(
-                                      line.item.id,
-                                      line.quantity + 1,
-                                    ),
-                                  ),
-                                  icon: const Icon(LucideIcons.plus),
-                                ),
-                              ],
-                            ),
-                          ),
-                        );
-                      },
+        bottomNavigationBar: cart.isEmpty
+            ? null
+            : SafeArea(
+                top: false,
+                child: DecoratedBox(
+                  decoration: const BoxDecoration(
+                    color: EcoColors.surfacePrimary,
+                    border: Border(
+                      top: BorderSide(color: EcoColors.borderMuted, width: 1),
                     ),
                   ),
-                  SafeArea(
-                    top: false,
-                    child: Padding(
-                      padding: const .all(16),
-                      child: Column(
-                        crossAxisAlignment: .stretch,
-                        children: [
+                  child: Padding(
+                    padding: const .fromLTRB(16, 12, 16, 16),
+                    child: Column(
+                      mainAxisSize: .min,
+                      crossAxisAlignment: .stretch,
+                      children: [
+                        Text(
+                          'Ваш баланс: $balance ★',
+                          style: EcoTypography.bodyMedium,
+                        ),
+                        Text(
+                          'Итого к списанию: $total ★',
+                          style: EcoTypography.titleMedium,
+                        ),
+                        if (deficit > 0) ...[
+                          const SizedBox(height: 6),
                           Text(
-                            'Ваш баланс: $balance ★',
-                            style: EcoTypography.bodyMedium,
-                          ),
-                          Text(
-                            'Итого к списанию: $total ★',
-                            style: EcoTypography.titleMedium,
-                          ),
-                          if (deficit > 0) ...[
-                            const SizedBox(height: 6),
-                            Text(
-                              'Нехватка $deficit ★ для оформления заказа',
-                              style: EcoTypography.labelSmall,
-                            ),
-                          ],
-                          const SizedBox(height: 10),
-                          ElevatedButton(
-                            onPressed:
-                                deficit <= 0 &&
-                                    !(loaded?.isCheckingOut ?? false)
-                                ? () => bloc.add(const ShopCheckoutSubmitted())
-                                : null,
-                            child: Text('Оформить заказ за $total ★'),
+                            'Нехватка $deficit ★ для оформления заказа',
+                            style: EcoTypography.labelSmall,
                           ),
                         ],
-                      ),
+                        const SizedBox(height: 10),
+                        ElevatedButton(
+                          onPressed:
+                              deficit <= 0 && !(loaded?.isCheckingOut ?? false)
+                              ? () => bloc.add(const ShopCheckoutSubmitted())
+                              : null,
+                          child: Text('Оформить заказ за $total ★'),
+                        ),
+                      ],
                     ),
+                  ),
+                ),
+              ),
+        body: switch (state) {
+          ShopLoading() => const Center(
+            child: CircularProgressIndicator(color: EcoColors.inkPrimary),
+          ),
+          ShopFailure(:final error) => Center(
+            child: Padding(
+              padding: const .all(24),
+              child: Column(
+                mainAxisSize: .min,
+                children: [
+                  Text(error.uiMessageRu, textAlign: .center),
+                  const SizedBox(height: 14),
+                  ElevatedButton(
+                    onPressed: () => bloc.add(const ShopCatalogRequested()),
+                    child: const Text('Повторить'),
                   ),
                 ],
               ),
+            ),
+          ),
+          ShopLoaded() =>
+            cart.isEmpty
+                ? const Center(
+                    child: Text(
+                      'Корзина пуста',
+                      style: EcoTypography.bodyMedium,
+                    ),
+                  )
+                : ListView.separated(
+                    padding: const .fromLTRB(16, 16, 16, 24),
+                    itemCount: cart.length,
+                    separatorBuilder: (_, _) => const SizedBox(height: 10),
+                    itemBuilder: (_, idx) {
+                      final line = cart[idx];
+                      return DecoratedBox(
+                        decoration: const BoxDecoration(
+                          color: EcoColors.surfaceCard,
+                          borderRadius: .all(.circular(18)),
+                        ),
+                        child: Padding(
+                          padding: const .all(12),
+                          child: Row(
+                            children: [
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: .start,
+                                  children: [
+                                    Text(
+                                      line.item.title,
+                                      style: EcoTypography.bodyLarge,
+                                    ),
+                                    Text(
+                                      '${line.item.pricePoints} ★ × ${line.quantity} = ${line.item.pricePoints * line.quantity} ★',
+                                      style: EcoTypography.labelSmall,
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              IconButton(
+                                onPressed: () => bloc.add(
+                                  ShopCartQuantityChanged(
+                                    line.item.id,
+                                    line.quantity - 1,
+                                  ),
+                                ),
+                                icon: const Icon(LucideIcons.minus),
+                              ),
+                              Text(
+                                '${line.quantity}',
+                                style: EcoTypography.tabularMetric,
+                              ),
+                              IconButton(
+                                onPressed: () => bloc.add(
+                                  ShopCartQuantityChanged(
+                                    line.item.id,
+                                    line.quantity + 1,
+                                  ),
+                                ),
+                                icon: const Icon(LucideIcons.plus),
+                              ),
+                            ],
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+        },
       );
     },
   );
@@ -521,10 +595,27 @@ final class const OrdersPromoScreen({super.key}) extends StatelessWidget {
 }
 
 final class const _OrdersScreenScaffold({required final bool isQrTab})
-    extends StatelessWidget {
+    extends StatefulWidget {
+  @override
+  State<_OrdersScreenScaffold> createState() => _OrdersScreenScaffoldState();
+}
+
+final class _OrdersScreenScaffoldState() extends State<_OrdersScreenScaffold> {
+  @override
+  void initState() {
+    super.initState();
+    final bloc = context.read<ShopBloc>();
+    if (bloc.state is ShopLoading) {
+      bloc.add(const ShopCatalogRequested());
+    } else {
+      bloc.add(const ShopOrdersRequested());
+    }
+  }
+
   @override
   Widget build(BuildContext context) => BlocBuilder<ShopBloc, ShopState>(
     builder: (context, state) {
+      final bloc = context.read<ShopBloc>();
       final orders = state is ShopLoaded
           ? state.orders
           : const <ShopOrderDetail>[];
@@ -535,7 +626,7 @@ final class const _OrdersScreenScaffold({required final bool isQrTab})
                     (order: order, line: line),
               ]
               .where(
-                (pair) => isQrTab
+                (pair) => widget.isQrTab
                     ? pair.line.itemType == .partnerQr
                     : pair.line.itemType != .partnerQr,
               )
@@ -544,127 +635,166 @@ final class const _OrdersScreenScaffold({required final bool isQrTab})
       return Scaffold(
         backgroundColor: EcoColors.surfacePrimary,
         appBar: AppBar(title: const Text('Мои заказы и купоны')),
-        body: Column(
-          children: [
-            Padding(
-              padding: const .symmetric(horizontal: 16, vertical: 8),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: ChoiceChip(
-                      label: const Text('QR-купоны'),
-                      selected: isQrTab,
-                      onSelected: (_) {
-                        if (!isQrTab) {
-                          context.pushReplacement('/shop/orders/qr');
-                        }
-                      },
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: ChoiceChip(
-                      label: const Text('Промокоды'),
-                      selected: !isQrTab,
-                      onSelected: (_) {
-                        if (isQrTab) {
-                          context.pushReplacement('/shop/orders/promo');
-                        }
-                      },
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            Expanded(
-              child: lines.isEmpty
-                  ? const Center(
-                      child: Text(
-                        'Купленных купонов пока нет.',
-                        style: EcoTypography.bodyMedium,
+        body: SafeArea(
+          top: false,
+          child: Column(
+            children: [
+              Padding(
+                padding: const .symmetric(horizontal: 16, vertical: 8),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: ChoiceChip(
+                        label: const Text('QR-купоны'),
+                        selected: widget.isQrTab,
+                        onSelected: (_) {
+                          if (!widget.isQrTab) {
+                            context.pushReplacement('/shop/orders/qr');
+                          }
+                        },
                       ),
-                    )
-                  : ListView.separated(
-                      padding: const .all(16),
-                      itemCount: lines.length,
-                      separatorBuilder: (_, _) => const SizedBox(height: 10),
-                      itemBuilder: (_, idx) {
-                        final entry = lines[idx];
-                        return DecoratedBox(
-                          decoration: const BoxDecoration(
-                            color: EcoColors.surfaceCard,
-                            borderRadius: .all(.circular(20)),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: ChoiceChip(
+                        label: const Text('Промокоды'),
+                        selected: !widget.isQrTab,
+                        onSelected: (_) {
+                          if (widget.isQrTab) {
+                            context.pushReplacement('/shop/orders/promo');
+                          }
+                        },
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Expanded(
+                child: switch (state) {
+                  ShopLoading() => const Center(
+                    child: CircularProgressIndicator(
+                      color: EcoColors.inkPrimary,
+                    ),
+                  ),
+                  ShopFailure(:final error) => Center(
+                    child: Padding(
+                      padding: const .all(24),
+                      child: Column(
+                        mainAxisSize: .min,
+                        children: [
+                          Text(error.uiMessageRu, textAlign: .center),
+                          const SizedBox(height: 14),
+                          ElevatedButton(
+                            onPressed: () =>
+                                bloc.add(const ShopCatalogRequested()),
+                            child: const Text('Повторить'),
                           ),
-                          child: Padding(
-                            padding: const .all(14),
-                            child: Column(
-                              crossAxisAlignment: .stretch,
-                              children: [
-                                Row(
-                                  children: [
-                                    Expanded(
-                                      child: Text(
-                                        entry.line.title,
-                                        style: EcoTypography.titleMedium,
-                                      ),
-                                    ),
-                                    Chip(
-                                      label: Text(entry.order.status.labelRu),
-                                    ),
-                                  ],
+                        ],
+                      ),
+                    ),
+                  ),
+                  ShopLoaded() =>
+                    lines.isEmpty
+                        ? const Center(
+                            child: Text(
+                              'Купленных купонов пока нет.',
+                              style: EcoTypography.bodyMedium,
+                            ),
+                          )
+                        : ListView.separated(
+                            padding: const .fromLTRB(16, 12, 16, 24),
+                            itemCount: lines.length,
+                            separatorBuilder: (_, _) =>
+                                const SizedBox(height: 10),
+                            itemBuilder: (_, idx) {
+                              final entry = lines[idx];
+                              return DecoratedBox(
+                                decoration: const BoxDecoration(
+                                  color: EcoColors.surfaceCard,
+                                  borderRadius: .all(.circular(20)),
                                 ),
-                                const SizedBox(height: 8),
-                                if (isQrTab)
-                                  ElevatedButton.icon(
-                                    onPressed: () => unawaited(
-                                      _showQrModal(
-                                        context,
-                                        entry.line.title,
-                                        entry.line.qrPayload,
-                                      ),
-                                    ),
-                                    icon: const Icon(
-                                      LucideIcons.qrCode,
-                                      size: 18,
-                                    ),
-                                    label: const Text('Показать QR-код'),
-                                  )
-                                else
-                                  Row(
+                                child: Padding(
+                                  padding: const .all(14),
+                                  child: Column(
+                                    crossAxisAlignment: .stretch,
                                     children: [
-                                      Expanded(
-                                        child: SelectableText(
-                                          entry.line.couponCode,
-                                          style: EcoTypography.tabularMetric,
-                                        ),
-                                      ),
-                                      OutlinedButton.icon(
-                                        onPressed: () async {
-                                          await Clipboard.setData(
-                                            ClipboardData(
-                                              text: entry.line.couponCode,
+                                      Row(
+                                        children: [
+                                          Expanded(
+                                            child: Text(
+                                              entry.line.title,
+                                              style: EcoTypography.titleMedium,
                                             ),
-                                          );
-                                          EcoTopBannerOverlay.instance.showMessage(
-                                            'Промокод ${entry.line.couponCode} скопирован',
-                                          );
-                                        },
-                                        icon: const Icon(
-                                          LucideIcons.copy,
-                                          size: 16,
-                                        ),
-                                        label: const Text('Скопировать код'),
+                                          ),
+                                          Chip(
+                                            label: Text(
+                                              entry.order.status.labelRu,
+                                            ),
+                                          ),
+                                        ],
                                       ),
+                                      const SizedBox(height: 8),
+                                      if (widget.isQrTab)
+                                        ElevatedButton.icon(
+                                          onPressed: () => unawaited(
+                                            _showQrModal(
+                                              context,
+                                              entry.line.title,
+                                              entry.line.qrPayload,
+                                            ),
+                                          ),
+                                          icon: const Icon(
+                                            LucideIcons.qrCode,
+                                            size: 18,
+                                          ),
+                                          label: const Text('Показать QR-код'),
+                                        )
+                                      else
+                                        Row(
+                                          children: [
+                                            Expanded(
+                                              child: SelectableText(
+                                                entry.line.couponCode,
+                                                style: EcoTypography
+                                                    .tabularMetric
+                                                    .copyWith(
+                                                      fontFamily: 'monospace',
+                                                      letterSpacing: 1.2,
+                                                    ),
+                                              ),
+                                            ),
+                                            OutlinedButton.icon(
+                                              onPressed: () async {
+                                                await Clipboard.setData(
+                                                  ClipboardData(
+                                                    text: entry.line.couponCode,
+                                                  ),
+                                                );
+                                                EcoTopBannerOverlay.instance
+                                                    .showMessage(
+                                                      'Промокод ${entry.line.couponCode} скопирован',
+                                                    );
+                                              },
+                                              icon: const Icon(
+                                                LucideIcons.copy,
+                                                size: 16,
+                                              ),
+                                              label: const Text(
+                                                'Скопировать код',
+                                              ),
+                                            ),
+                                          ],
+                                        ),
                                     ],
                                   ),
-                              ],
-                            ),
+                                ),
+                              );
+                            },
                           ),
-                        );
-                      },
-                    ),
-            ),
-          ],
+                },
+              ),
+            ],
+          ),
         ),
       );
     },
@@ -715,7 +845,12 @@ final class _PointLedgerScreenState() extends State<PointLedgerScreen> {
   @override
   void initState() {
     super.initState();
-    context.read<ShopBloc>().add(const ShopLedgerRequested());
+    final bloc = context.read<ShopBloc>();
+    if (bloc.state is ShopLoading) {
+      bloc.add(const ShopCatalogRequested());
+    } else {
+      bloc.add(const ShopLedgerRequested());
+    }
   }
 
   @override

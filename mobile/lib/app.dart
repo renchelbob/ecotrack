@@ -28,6 +28,72 @@ final class const EcoTrackApp({
   final AuthBloc? overrideAuthBloc,
   super.key,
 }) extends StatefulWidget {
+  static String? resolveDeepLinkLocation(String rawUri) {
+    final trimmed = rawUri.trim();
+    if (trimmed.isEmpty) {
+      return null;
+    }
+    final parsed = Uri.tryParse(trimmed);
+    if (parsed == null) {
+      return null;
+    }
+    if (parsed.scheme.isNotEmpty && parsed.scheme != 'ecotrack') {
+      return null;
+    }
+    if (parsed.host.isNotEmpty) {
+      return _resolveHostBasedUri(parsed);
+    }
+    if (parsed.path.isEmpty) {
+      return null;
+    }
+    final normalizedPath = parsed.path.startsWith('/')
+        ? parsed.path
+        : '/${parsed.path}';
+    if (normalizedPath.startsWith('/friend/')) {
+      final code = normalizedPath.substring('/friend/'.length);
+      return _buildFriendsLocation(code, parsed.queryParameters);
+    }
+    return _appendQuery(normalizedPath, parsed.query);
+  }
+
+  static String? _resolveHostBasedUri(Uri parsed) {
+    final host = parsed.host;
+    final segments = parsed.pathSegments;
+    return switch (host) {
+      'friend' => _buildFriendsLocation(
+        segments.isNotEmpty ? segments.first : parsed.queryParameters['code'],
+        parsed.queryParameters,
+      ),
+      'home' ||
+      'map' ||
+      'stats' ||
+      'shop' ||
+      'profile' ||
+      'ledger' => _appendQuery(
+        segments.isEmpty ? '/$host' : '/$host/${segments.join('/')}',
+        parsed.query,
+      ),
+      _ => null,
+    };
+  }
+
+  static String _buildFriendsLocation(
+    String? code,
+    Map<String, String> existingQuery,
+  ) {
+    final merged = Map<String, String>.of(existingQuery);
+    if (code != null && code.isNotEmpty) {
+      merged['code'] = code;
+    }
+    if (merged.isEmpty) {
+      return '/profile/friends';
+    }
+    return Uri(path: '/profile/friends', queryParameters: merged).toString();
+  }
+
+  static String _appendQuery(String path, String query) =>
+      query.isEmpty ? path : '$path?$query';
+
   @override
   State<EcoTrackApp> createState() => _EcoTrackAppState();
 }
@@ -35,12 +101,17 @@ final class const EcoTrackApp({
 final class _EcoTrackAppState()
     extends State<EcoTrackApp>
     with WidgetsBindingObserver {
+  static const Duration _gateCheckCooldown = Duration(seconds: 5);
+
   late final AuthBloc _authBloc;
   late final bool _ownsAuthBloc;
   late final AuthRouterListenable _routerListenable;
   late final GoRouter _router;
   late final SyncStatusCubit _syncStatusCubit;
   StreamSubscription<String>? _deepLinkSub;
+  StreamSubscription<AuthState>? _authStateSub;
+  bool _isCheckingGateSession = false;
+  DateTime? _lastGateCheckAt;
 
   @override
   void initState() {
@@ -59,13 +130,17 @@ final class _EcoTrackAppState()
           onSessionCleared: () => _onSessionCleared(deps),
         );
 
+    _authStateSub = _authBloc.stream.listen((_) {
+      _isCheckingGateSession = false;
+    });
+
     deps.sessionCallbacks.onForceLogout = () {
       _authBloc.add(const AuthForceLogoutRequested());
     };
     deps.sessionCallbacks.onGateError = (error) {
       if (error.clientAction == ClientErrorAction.openConsentScreen ||
           error.clientAction == ClientErrorAction.openPhoneModal) {
-        _authBloc.add(const AuthSessionChecked());
+        _handleGateResolutionError(error);
       } else {
         EcoTopBannerOverlay.instance.show(error);
       }
@@ -87,15 +162,40 @@ final class _EcoTrackAppState()
     );
 
     _deepLinkSub = deps.pushProvider.onNotificationTapDeepLink.listen((uri) {
-      final parsed = Uri.tryParse(uri);
-      if (parsed != null && parsed.path.isNotEmpty) {
-        _router.go(parsed.path);
+      final target = EcoTrackApp.resolveDeepLinkLocation(uri);
+      if (target != null) {
+        _router.go(target);
       }
     });
 
     if (_ownsAuthBloc) {
       _authBloc.add(const AuthSessionChecked());
     }
+  }
+
+  void _handleGateResolutionError(AppError error) {
+    final currentState = _authBloc.state;
+    if (currentState is AuthConsentResolutionRequired ||
+        currentState is AuthGooglePhoneRequired ||
+        currentState is AuthAuthenticating ||
+        currentState is AuthUnauthenticated ||
+        currentState is AuthOnboardingRequired) {
+      return;
+    }
+    if (currentState is! AuthAuthenticated) {
+      EcoTopBannerOverlay.instance.show(error);
+      return;
+    }
+    final now = DateTime.now();
+    final lastCheck = _lastGateCheckAt;
+    final inCooldown =
+        lastCheck != null && now.difference(lastCheck) < _gateCheckCooldown;
+    if (_isCheckingGateSession || inCooldown) {
+      return;
+    }
+    _isCheckingGateSession = true;
+    _lastGateCheckAt = now;
+    _authBloc.add(const AuthSessionChecked());
   }
 
   Future<void> _onSessionActivated(AppDependencies deps) {
@@ -122,6 +222,7 @@ final class _EcoTrackAppState()
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     unawaited(_deepLinkSub?.cancel());
+    unawaited(_authStateSub?.cancel());
     unawaited(_syncStatusCubit.close());
     _router.dispose();
     _routerListenable.dispose();

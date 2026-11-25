@@ -1,10 +1,14 @@
 import 'dart:convert';
 
+import 'package:ecotrack_mobile/core/database/outbox_dispatcher.dart';
 import 'package:ecotrack_mobile/core/database/sqlite_database.dart';
 import 'package:ecotrack_mobile/features/profile_social/domain/profile_models.dart';
 import 'package:sqflite/sqflite.dart';
 
-final class FriendsSqliteDao(final SqliteDatabase _db) {
+final class FriendsSqliteDao(
+  final SqliteDatabase _db,
+  final OutboxDispatcher _outbox,
+) {
   static String todayIsoLocal() {
     final now = DateTime.now();
     final month = now.month.toString().padLeft(2, '0');
@@ -109,19 +113,11 @@ final class FriendsSqliteDao(final SqliteDatabase _db) {
   Future<void> enqueueWakeupNudgeOutbox({
     required String friendUserId,
     required String idempotencyKey,
-  }) async {
-    final nowMs = DateTime.now().millisecondsSinceEpoch;
-    await _db.database.insert('offline_mutation_outbox', {
-      'idempotency_key': idempotencyKey,
-      'operation_type': 'send_friend_wakeup_nudge',
-      'http_method': 'POST',
-      'endpoint_path': '/api/v1/friends/$friendUserId/nudge',
-      'payload_json': jsonEncode(<String, Object?>{}),
-      'retry_count': 0,
-      'max_retries': 12,
-      'next_retry_at_ms': nowMs,
-      'status': 'pending',
-      'created_at_ms': nowMs,
-    }, conflictAlgorithm: ConflictAlgorithm.replace);
-  }
+  }) => _outbox.enqueue(
+    operationType: 'send_friend_wakeup_nudge',
+    httpMethod: 'POST',
+    endpointPath: '/api/v1/friends/$friendUserId/nudge',
+    payloadJson: jsonEncode(<String, Object?>{}),
+    idempotencyKey: idempotencyKey,
+  );
 }

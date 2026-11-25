@@ -11,62 +11,115 @@ final class const FloatingBottomNavBar({
   Widget build(BuildContext context) => SafeArea(
     top: false,
     child: Padding(
-      padding: const .fromLTRB(24, 6, 24, 16),
+      padding: const .fromLTRB(20, 4, 20, 14),
       child: Center(
         heightFactor: 1,
         child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 320),
+          constraints: const BoxConstraints(maxWidth: 340),
           child: SizedBox(
-            height: 58,
-            child: DecoratedBox(
-              decoration: const BoxDecoration(
-                color: Color(0xFFDCDCDC),
-                borderRadius: .all(.circular(999)),
-                boxShadow: [
-                  BoxShadow(
-                    color: Color(0x141E1E1E),
-                    blurRadius: 10,
-                    offset: Offset(0, 3),
+            height: 68,
+            child: Stack(
+              clipBehavior: .none,
+              alignment: .bottomCenter,
+              children: [
+                SizedBox(
+                  height: 58,
+                  child: DecoratedBox(
+                    decoration: const BoxDecoration(
+                      color: Color(0xFFDCDCDC),
+                      borderRadius: .all(.circular(999)),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Color(0x141E1E1E),
+                          blurRadius: 10,
+                          offset: Offset(0, 3),
+                        ),
+                      ],
+                    ),
+                    child: Padding(
+                      padding: const .symmetric(horizontal: 10),
+                      child: Row(
+                        mainAxisAlignment: .spaceBetween,
+                        children: [
+                          _NavBarIconTab(
+                            label: 'Статистика',
+                            icon: LucideIcons.chartBar,
+                            isSelected: currentIndex == 0,
+                            onTap: () => onTap(0),
+                          ),
+                          _NavBarIconTab(
+                            label: 'Карта',
+                            icon: LucideIcons.mapPin,
+                            isSelected: currentIndex == 1,
+                            onTap: () => onTap(1),
+                          ),
+                          const SizedBox(width: 64),
+                          _NavBarIconTab(
+                            label: 'Магазин',
+                            icon: LucideIcons.shoppingBag,
+                            isSelected: currentIndex == 3,
+                            onTap: () => onTap(3),
+                          ),
+                          _NavBarIconTab(
+                            label: 'Профиль',
+                            icon: LucideIcons.user,
+                            isSelected: currentIndex == 4,
+                            onTap: () => onTap(4),
+                          ),
+                        ],
+                      ),
+                    ),
                   ),
-                ],
-              ),
-              child: Padding(
-                padding: const .symmetric(horizontal: 10),
-                child: Row(
-                  mainAxisAlignment: .spaceBetween,
-                  children: [
-                    _NavBarIconTab(
-                      label: 'Статистика',
-                      icon: LucideIcons.chartColumnBig,
-                      isSelected: currentIndex == 0,
-                      onTap: () => onTap(0),
-                    ),
-                    _NavBarIconTab(
-                      label: 'Калькулятор',
-                      icon: LucideIcons.calculator,
-                      isSelected: currentIndex == 1,
-                      onTap: () => onTap(1),
-                    ),
-                    _NavBarIconTab(
-                      label: 'Главная',
-                      icon: LucideIcons.house,
-                      isSelected: currentIndex == 2,
-                      onTap: () => onTap(2),
-                    ),
-                    _NavBarIconTab(
-                      label: 'Магазин',
-                      icon: LucideIcons.store,
-                      isSelected: currentIndex == 3,
-                      onTap: () => onTap(3),
-                    ),
-                    _NavBarIconTab(
-                      label: 'Профиль',
-                      icon: LucideIcons.settings,
-                      isSelected: currentIndex == 4,
-                      onTap: () => onTap(4),
-                    ),
-                  ],
                 ),
+                Align(
+                  alignment: .topCenter,
+                  child: _CenterHomeDome(
+                    isSelected: currentIndex == 2,
+                    onTap: () => onTap(2),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    ),
+  );
+}
+
+final class const _CenterHomeDome({
+  required final bool isSelected,
+  required final VoidCallback onTap,
+}) extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) => Semantics(
+    button: true,
+    selected: isSelected,
+    label: 'Главная',
+    child: Tooltip(
+      message: 'Главная',
+      child: SizedBox(
+        width: 64,
+        height: 64,
+        child: Material(
+          color: isSelected ? EcoColors.inkPrimary : EcoColors.surfaceSubtle,
+          shape: CircleBorder(
+            side: BorderSide(
+              color: isSelected ? EcoColors.inkPrimary : EcoColors.borderMuted,
+              width: 1.5,
+            ),
+          ),
+          elevation: isSelected ? 4 : 1,
+          child: InkWell(
+            onTap: onTap,
+            customBorder: const CircleBorder(),
+            child: Center(
+              child: Icon(
+                LucideIcons.house,
+                size: 26,
+                color: isSelected
+                    ? EcoColors.surfacePrimary
+                    : EcoColors.inkPrimary,
               ),
             ),
           ),
