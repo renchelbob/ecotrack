@@ -1,197 +1,185 @@
 import 'dart:convert';
+
 import 'package:flutter/services.dart';
 
-/// Sealed error model mapped directly to `contracts/error_catalog.json`.
-sealed class AppError implements Exception {
-  const AppError({
-    required this.code,
-    required this.httpStatus,
-    required this.domain,
-    required this.retryable,
-    required this.clientAction,
-    required this.descriptionEn,
-    required this.uiMessageRu,
-  });
+enum ClientErrorAction(final String wireName) {
+  none('none'),
+  refreshToken('refresh_token'),
+  forceLogout('force_logout'),
+  showInline('show_inline'),
+  showBanner('show_banner'),
+  queueRetry('queue_retry'),
+  openPhoneModal('open_phone_modal'),
+  openConsentScreen('open_consent_screen');
 
-  factory AppError.fromCode(String code, [String? customMessageRu]) {
-    final entry = _staticCatalog[code] ?? _fallbackError;
-    return GenericAppError(
-      code: code,
-      httpStatus: entry.httpStatus,
-      domain: entry.domain,
-      retryable: entry.retryable,
-      clientAction: entry.clientAction,
-      descriptionEn: entry.descriptionEn,
-      uiMessageRu: customMessageRu ?? entry.uiMessageRu,
-    );
+  static ClientErrorAction fromWire(String raw) => switch (raw) {
+    'none' => ClientErrorAction.none,
+    'refresh_token' => ClientErrorAction.refreshToken,
+    'force_logout' => ClientErrorAction.forceLogout,
+    'show_inline' => ClientErrorAction.showInline,
+    'show_banner' => ClientErrorAction.showBanner,
+    'queue_retry' => ClientErrorAction.queueRetry,
+    'open_phone_modal' => ClientErrorAction.openPhoneModal,
+    'open_consent_screen' => ClientErrorAction.openConsentScreen,
+    _ => ClientErrorAction.none,
+  };
+}
+
+final class const ErrorFieldIssue(final String field, final String issue);
+
+final class const _CatalogEntry({
+  required final String code,
+  required final int httpStatus,
+  required final String domain,
+  required final bool retryable,
+  required final ClientErrorAction clientAction,
+  required final String uiMessageRu,
+});
+
+final class const AppError({
+  required final String code,
+  required final int httpStatus,
+  required final String domain,
+  required final bool retryable,
+  required final ClientErrorAction clientAction,
+  required final String uiMessageRu,
+  final String? traceId,
+  final List<ErrorFieldIssue> details = const [],
+}) implements Exception {
+  factory fromCode(
+    String code, {
+    String? traceId,
+    List<ErrorFieldIssue> details = const [],
+  }) => ErrorCatalogRegistry.instance.resolve(
+    code,
+    traceId: traceId,
+    details: details,
+  );
+
+  @override
+  String toString() =>
+      'AppError($code, status: $httpStatus, action: ${clientAction.wireName})';
+}
+
+final class ErrorCatalogRegistry._() {
+  static final ErrorCatalogRegistry instance = ErrorCatalogRegistry._();
+
+  static const _CatalogEntry _defaultInternal = _CatalogEntry(
+    code: 'INTERNAL_SERVER_ERROR',
+    httpStatus: 500,
+    domain: 'infrastructure',
+    retryable: true,
+    clientAction: ClientErrorAction.showBanner,
+    uiMessageRu: 'Внутренняя ошибка сервера. Мы уже записали сбой — попробуйте повторить позже.',
+  );
+
+  static const _CatalogEntry _defaultDatabaseUnavailable = _CatalogEntry(
+    code: 'DATABASE_UNAVAILABLE',
+    httpStatus: 503,
+    domain: 'infrastructure',
+    retryable: true,
+    clientAction: ClientErrorAction.queueRetry,
+    uiMessageRu: 'Сервис временно перегружен. Изменения сохранены локально и синхронизируются автоматически.',
+  );
+
+  final Map<String, _CatalogEntry> _entries = <String, _CatalogEntry>{};
+
+  Future<void> loadFromAsset([
+    String assetPath = 'assets/errors/error_catalog.json',
+  ]) async {
+    final rawJson = await rootBundle.loadString(assetPath);
+    loadFromJsonString(rawJson);
   }
 
-  factory AppError.fromJson(Map<String, Object?> json) {
-    if (json case {
-      'code': final String code,
-      'http_status': final int httpStatus,
-      'domain': final String domain,
-      'retryable': final bool retryable,
-      'client_action': final String clientAction,
-      'description_en': final String descriptionEn,
-      'ui_message_ru': final String uiMessageRu,
-    }) {
-      return GenericAppError(
+  void loadFromJsonString(String rawJson) {
+    final decoded = jsonDecode(rawJson);
+    if (decoded is! Map<String, Object?>) {
+      return;
+    }
+    final errorsNode = decoded['errors'];
+    if (errorsNode is! Map<String, Object?>) {
+      return;
+    }
+
+    _entries.clear();
+    for (final entry in errorsNode.entries) {
+      final rawItem = entry.value;
+      if (rawItem is! Map<String, Object?>) {
+        continue;
+      }
+      final code = rawItem['code'] as String? ?? entry.key;
+      final httpStatus = (rawItem['http_status'] as num?)?.toInt() ?? 500;
+      final domain = rawItem['domain'] as String? ?? 'infrastructure';
+      final retryable = rawItem['retryable'] as bool? ?? false;
+      final rawAction = rawItem['client_action'] as String? ?? 'none';
+      final uiMessageRu = rawItem['ui_message_ru'] as String? ?? '';
+
+      _entries[entry.key] = _CatalogEntry(
         code: code,
         httpStatus: httpStatus,
         domain: domain,
         retryable: retryable,
-        clientAction: clientAction,
-        descriptionEn: descriptionEn,
+        clientAction: ClientErrorAction.fromWire(rawAction),
         uiMessageRu: uiMessageRu,
       );
     }
-    return AppError.fromCode('VALIDATION_ERROR');
   }
 
-  final String code;
-  final int httpStatus;
-  final String domain;
-  final bool retryable;
-  final String clientAction;
-  final String descriptionEn;
-  final String uiMessageRu;
+  AppError resolve(
+    String code, {
+    String? traceId,
+    List<ErrorFieldIssue> details = const [],
+  }) {
+    final entry =
+        _entries[code] ??
+        _entries['INTERNAL_SERVER_ERROR'] ??
+        (code == 'DATABASE_UNAVAILABLE'
+            ? _defaultDatabaseUnavailable
+            : _defaultInternal);
+    return AppError(
+      code: entry.code,
+      httpStatus: entry.httpStatus,
+      domain: entry.domain,
+      retryable: entry.retryable,
+      clientAction: entry.clientAction,
+      uiMessageRu: entry.uiMessageRu,
+      traceId: traceId,
+      details: details,
+    );
+  }
 
-  static Future<void> loadCatalog() async {
-    try {
-      final jsonString = await rootBundle.loadString(
-        'assets/errors/error_catalog.json',
-      );
-      final dynamic decoded = jsonDecode(jsonString);
-      if (decoded case {'errors': final Map<String, Object?> errors}) {
-        for (final entry in errors.entries) {
-          if (entry.value case final Map<String, Object?> map) {
-            _staticCatalog[entry.key] = GenericAppError(
-              code: map['code'] as String? ?? entry.key,
-              httpStatus: (map['http_status'] as num?)?.toInt() ?? 500,
-              domain: map['domain'] as String? ?? 'general',
-              retryable: map['retryable'] as bool? ?? false,
-              clientAction: map['client_action'] as String? ?? 'show_banner',
-              descriptionEn: map['description_en'] as String? ?? '',
-              uiMessageRu: map['ui_message_ru'] as String? ?? 'Ошибка сервиса',
-            );
-          }
+  AppError fromResponseMap(
+    Map<String, Object?> json, {
+    int? fallbackHttpStatus,
+  }) {
+    final errorCode = json['error_code'];
+    final traceId = json['trace_id'] as String?;
+    final rawDetails = json['details'];
+    final parsedDetails = <ErrorFieldIssue>[];
+
+    if (rawDetails is List<Object?>) {
+      for (final item in rawDetails) {
+        if (item is Map<String, Object?>) {
+          final field = item['field'] as String? ?? '';
+          final issue = item['issue'] as String? ?? '';
+          parsedDetails.add(ErrorFieldIssue(field, issue));
         }
       }
-    } catch (_) {
-      // Fallback in-memory catalog will serve requests
     }
+
+    if (errorCode is String && errorCode.isNotEmpty) {
+      return resolve(errorCode, traceId: traceId, details: parsedDetails);
+    }
+
+    final fallbackCode = switch (fallbackHttpStatus) {
+      401 => 'AUTH_TOKEN_INVALID',
+      403 => 'FZ152_CONSENT_REQUIRED',
+      422 => 'VALIDATION_ERROR',
+      429 => 'RATE_LIMIT_EXCEEDED',
+      503 => 'DATABASE_UNAVAILABLE',
+      _ => 'INTERNAL_SERVER_ERROR',
+    };
+
+    return resolve(fallbackCode, traceId: traceId, details: parsedDetails);
   }
-
-  static final Map<String, AppError> _staticCatalog = {
-    'INTERNAL_SERVER_ERROR': const GenericAppError(
-      code: 'INTERNAL_SERVER_ERROR',
-      httpStatus: 500,
-      domain: 'infrastructure',
-      retryable: true,
-      clientAction: 'show_banner',
-      descriptionEn: 'Unhandled server exception.',
-      uiMessageRu: 'Внутренняя ошибка сервера. Попробуйте повторить позже.',
-    ),
-    'DATABASE_UNAVAILABLE': const GenericAppError(
-      code: 'DATABASE_UNAVAILABLE',
-      httpStatus: 503,
-      domain: 'infrastructure',
-      retryable: true,
-      clientAction: 'queue_retry',
-      descriptionEn: 'Database unreachable.',
-      uiMessageRu: 'Сервис временно перегружен. Изменения сохранены локально.',
-    ),
-    'NETWORK_UNAVAILABLE': const GenericAppError(
-      code: 'NETWORK_UNAVAILABLE',
-      httpStatus: 0,
-      domain: 'network',
-      retryable: true,
-      clientAction: 'queue_retry',
-      descriptionEn: 'Network unreachable or connection timed out.',
-      uiMessageRu: 'Нет соединения с интернетом. Работаем в офлайн-режиме.',
-    ),
-    'AUTH_TOKEN_EXPIRED': const GenericAppError(
-      code: 'AUTH_TOKEN_EXPIRED',
-      httpStatus: 401,
-      domain: 'auth',
-      retryable: false,
-      clientAction: 'refresh_auth',
-      descriptionEn: 'Access token expired.',
-      uiMessageRu: 'Сессия истекла. Обновляем доступ...',
-    ),
-    'AUTH_REQUIRED': const GenericAppError(
-      code: 'AUTH_REQUIRED',
-      httpStatus: 401,
-      domain: 'auth',
-      retryable: false,
-      clientAction: 'navigate_login',
-      descriptionEn: 'Authentication required.',
-      uiMessageRu: 'Пожалуйста, выполните вход в аккаунт.',
-    ),
-    'VALIDATION_ERROR': const GenericAppError(
-      code: 'VALIDATION_ERROR',
-      httpStatus: 422,
-      domain: 'validation',
-      retryable: false,
-      clientAction: 'show_banner',
-      descriptionEn: 'Validation error.',
-      uiMessageRu: 'Проверьте правильность введенных данных.',
-    ),
-    'INSUFFICIENT_POINTS': const GenericAppError(
-      code: 'INSUFFICIENT_POINTS',
-      httpStatus: 400,
-      domain: 'points',
-      retryable: false,
-      clientAction: 'show_banner',
-      descriptionEn: 'Insufficient points balance.',
-      uiMessageRu: 'Недостаточно эко-баллов на счете.',
-    ),
-    'FZ152_CONSENT_REQUIRED': const GenericAppError(
-      code: 'FZ152_CONSENT_REQUIRED',
-      httpStatus: 403,
-      domain: 'auth',
-      retryable: false,
-      clientAction: 'show_consent_modal',
-      descriptionEn: 'User consent under 152-FZ is required.',
-      uiMessageRu:
-          'Требуется подтверждение согласия на обработку персональных данных (152-ФЗ).',
-    ),
-    'FZ152_GOOGLE_PHONE_REQUIRED': const GenericAppError(
-      code: 'FZ152_GOOGLE_PHONE_REQUIRED',
-      httpStatus: 403,
-      domain: 'auth',
-      retryable: false,
-      clientAction: 'show_phone_modal',
-      descriptionEn: 'Phone number is mandatory under 152-FZ.',
-      uiMessageRu:
-          'По закону 152-ФЗ для авторизации через Google требуется указать номер телефона РФ (+7).',
-    ),
-  };
-
-  static const _fallbackError = GenericAppError(
-    code: 'UNKNOWN_ERROR',
-    httpStatus: 500,
-    domain: 'general',
-    retryable: true,
-    clientAction: 'show_banner',
-    descriptionEn: 'An unexpected error occurred.',
-    uiMessageRu: 'Произошла непредвиденная ошибка. Попробуйте позже.',
-  );
-}
-
-final class GenericAppError extends AppError {
-  const GenericAppError({
-    required super.code,
-    required super.httpStatus,
-    required super.domain,
-    required super.retryable,
-    required super.clientAction,
-    required super.descriptionEn,
-    required super.uiMessageRu,
-  });
-
-  @override
-  String toString() =>
-      'AppError($code, status: $httpStatus, action: $clientAction)';
 }

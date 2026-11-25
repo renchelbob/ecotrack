@@ -1,178 +1,278 @@
+import 'dart:async';
+
 import 'package:ecotrack_mobile/core/error/app_error.dart';
 import 'package:ecotrack_mobile/core/error/result.dart';
-import 'package:ecotrack_mobile/core/network/api_client.dart';
+import 'package:ecotrack_mobile/core/network/dio_client.dart';
+import 'package:ecotrack_mobile/core/network/token_store.dart';
+import 'package:ecotrack_mobile/core/push/push_provider.dart';
+import 'package:ecotrack_mobile/features/auth_fz152/data/oauth_pkce_client.dart';
 import 'package:ecotrack_mobile/features/auth_fz152/domain/auth_models.dart';
-import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'package:ecotrack_mobile/features/profile_social/domain/profile_models.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
-final class AuthRepositoryImpl implements AuthRepository {
-  AuthRepositoryImpl({
-    ApiClient? apiClient,
-    FlutterSecureStorage? secureStorage,
-  }) : _apiClient = apiClient ?? ApiClient(),
-       _secureStorage = secureStorage ?? const FlutterSecureStorage();
+final class AuthRepositoryImpl(
+  final DioClient _dioClient,
+  final TokenStore _tokenStore,
+  final ProfileRepository _profileRepo,
+  final OAuthPkceClient _pkceClient,
+  final PushProvider _pushProvider,
+) implements AuthRepository, AuthSessionNotifier {
+  static const String _onboardingSeenKey = 'ecotrack_onboarding_seen';
+  static const String _policyVersion = '1.0.0-2026';
 
-  final ApiClient _apiClient;
-  final FlutterSecureStorage _secureStorage;
+  final StreamController<void> _sessionEndedController =
+      StreamController<void>.broadcast();
 
   @override
-  Future<Result<AuthSession, AppError>> login({
-    required String email,
-    required String password,
-  }) async {
-    final result = await _apiClient.post<AuthSession>(
-      path: '/v1/auth/login',
-      data: {'email': email, 'password': password},
-      fromJson: (data) {
-        if (data case final Map<String, Object?> map) {
-          final parsed = AuthSession.fromJson(map);
-          return parsed.fold((s) => s, (e) => throw e);
-        }
-        throw AppError.fromCode('VALIDATION_ERROR');
-      },
+  Stream<void> get onSessionEnded => _sessionEndedController.stream;
+
+  Future<void> dispose() => _sessionEndedController.close();
+
+  @override
+  Future<Result<AuthSession?, AppError>> restoreSession() async {
+    final accessToken = await _tokenStore.getAccessToken();
+    final refreshToken = await _tokenStore.getRefreshToken();
+    if (accessToken == null ||
+        accessToken.isEmpty ||
+        refreshToken == null ||
+        refreshToken.isEmpty) {
+      return const Ok(null);
+    }
+
+    final cachedProfile = await _profileRepo.getCachedProfileSnapshot();
+
+    final profileRes = await _dioClient.get<UserProfile>(
+      '/api/v1/users/me',
+      parser: (data) => _parseOrThrow(
+        data,
+        (map) => UserProfile.fromJson(
+          map,
+          authProviderOverride: cachedProfile?.authProvider,
+          isForeignLabModeOverride: cachedProfile?.isForeignProviderLabMode,
+        ),
+      ),
     );
 
-    return result.fold((session) async {
-      await _persistSession(session);
-      return Ok(session);
-    }, Err.new);
+    switch (profileRes) {
+      case Ok(:final value):
+        await _profileRepo.cacheProfile(
+          value,
+          authProvider: cachedProfile?.authProvider,
+          isForeignLabMode: cachedProfile?.isForeignProviderLabMode,
+        );
+        return Ok(
+          AuthSession(
+            accessToken: accessToken,
+            refreshToken: refreshToken,
+            expiresInSeconds: 900,
+            isForeignProviderLabMode: value.isForeignProviderLabMode,
+            labModeWarningBanner: value.isForeignProviderLabMode
+                ? _defaultGoogleLabBanner
+                : null,
+            user: value,
+          ),
+        );
+      case Err(:final error):
+        if (_isOfflineError(error) && cachedProfile != null) {
+          return Ok(
+            AuthSession(
+              accessToken: accessToken,
+              refreshToken: refreshToken,
+              expiresInSeconds: 900,
+              isForeignProviderLabMode: cachedProfile.isForeignProviderLabMode,
+              labModeWarningBanner: cachedProfile.isForeignProviderLabMode
+                  ? _defaultGoogleLabBanner
+                  : null,
+              user: cachedProfile,
+            ),
+          );
+        }
+        if (error.clientAction == ClientErrorAction.forceLogout) {
+          await _clearLocalSession();
+          return const Ok(null);
+        }
+        return Err(error);
+    }
   }
 
   @override
-  Future<Result<AuthSession, AppError>> register({
-    required String displayName,
-    required String email,
-    required String password,
-    required String ruPhone,
-    required bool allowPdnProcessing,
-    required bool allowTelemetry,
+  Future<Result<AuthSession, AppError>> signInWithOAuth({
+    required AuthProviderType provider,
+    required ConsentScopeObject consentScope,
   }) async {
-    if (!allowPdnProcessing) {
-      return Err(AppError.fromCode('FZ152_CONSENT_REQUIRED'));
-    }
-    if (!ruPhone.startsWith('+7')) {
-      return Err(AppError.fromCode('FZ152_GOOGLE_PHONE_REQUIRED'));
-    }
-
-    final result = await _apiClient.post<AuthSession>(
-      path: '/v1/auth/register',
-      data: {
-        'display_name': displayName,
-        'email': email,
-        'password': password,
-        'phone': ruPhone,
-        'allow_pdn_processing': allowPdnProcessing,
-        'allow_telemetry': allowTelemetry,
-      },
-      fromJson: (data) {
-        if (data case final Map<String, Object?> map) {
-          final parsed = AuthSession.fromJson(map);
-          return parsed.fold((s) => s, (e) => throw e);
-        }
-        throw AppError.fromCode('VALIDATION_ERROR');
-      },
-    );
-
-    return result.fold((session) async {
-      await _persistSession(session);
-      return Ok(session);
-    }, Err.new);
-  }
-
-  @override
-  Future<Result<AuthSession, AppError>> loginWithGoogle({
-    required String googleAuthCode,
-    String? phone,
-  }) async {
-    // 152-FZ verification: Google Auth requires RU phone number (+7...)
-    if (phone == null || !phone.startsWith('+7')) {
-      return Err(AppError.fromCode('FZ152_GOOGLE_PHONE_REQUIRED'));
-    }
-
-    final result = await _apiClient.post<AuthSession>(
-      path: '/v1/auth/google',
-      data: {'auth_code': googleAuthCode, 'phone': phone},
-      fromJson: (data) {
-        if (data case final Map<String, Object?> map) {
-          final parsed = AuthSession.fromJson(map);
-          return parsed.fold((s) => s, (e) => throw e);
-        }
-        throw AppError.fromCode('VALIDATION_ERROR');
-      },
-    );
-
-    return result.fold((session) async {
-      await _persistSession(session);
-      return Ok(session);
-    }, Err.new);
-  }
-
-  @override
-  Future<Result<void, AppError>> submitFz152Consent({
-    required bool allowPdnProcessing,
-    required bool allowTelemetry,
-  }) async {
-    if (!allowPdnProcessing) {
+    if (!consentScope.personalData152fz) {
       return Err(AppError.fromCode('FZ152_CONSENT_REQUIRED'));
     }
 
-    return _apiClient.post<void>(
-      path: '/v1/users/me/consents',
+    final pkceResult = await _pkceClient.authorize(provider);
+    final OAuthPkcePayload pkcePayload;
+    switch (pkceResult) {
+      case Ok(:final value):
+        pkcePayload = value;
+      case Err(:final error):
+        return Err(error);
+    }
+
+    final fingerprint = await _tokenStore.getOrCreateDeviceFingerprint();
+    final exchangeRes = await _dioClient.post<AuthSession>(
+      '/api/v1/auth/oauth/exchange',
       data: {
-        'allow_pdn_processing': allowPdnProcessing,
-        'allow_telemetry': allowTelemetry,
-        'consent_timestamp': DateTime.now().toIso8601String(),
+        'provider': provider.wireName,
+        'authorization_code': pkcePayload.authorizationCode,
+        'code_verifier': pkcePayload.codeVerifier,
+        'redirect_uri': pkcePayload.redirectUri,
+        'device_fingerprint': fingerprint,
+        'policy_version': _policyVersion,
+        'consent_scope': consentScope.toJson(),
       },
-      fromJson: (_) {},
+      parser: (data) => _parseOrThrow(
+        data,
+        (map) => AuthSession.fromJson(map, authProviderOverride: provider),
+      ),
     );
+
+    if (exchangeRes case Ok(:final value)) {
+      await _tokenStore.saveTokens(
+        accessToken: value.accessToken,
+        refreshToken: value.refreshToken,
+      );
+      await _profileRepo.cacheProfile(
+        value.user,
+        authProvider: provider,
+        isForeignLabMode: value.isForeignProviderLabMode,
+      );
+      await markOnboardingStepSeen();
+      unawaited(_registerPushTokenBestEffort(fingerprint));
+      return Ok(value);
+    }
+    return exchangeRes;
   }
 
   @override
-  Future<AuthSession?> getCurrentSession() async {
-    final token = await _secureStorage.read(key: 'jwt_access_token');
-    final userId = await _secureStorage.read(key: 'auth_user_id');
-    final name = await _secureStorage.read(key: 'auth_user_name');
+  Future<Result<UserProfile, AppError>> submitGoogleFormalPhone(
+    String phoneE164,
+  ) async {
+    if (!RegExp(r'^\+[1-9][0-9]{7,14}$').hasMatch(phoneE164)) {
+      return Err(AppError.fromCode('INVALID_FORMAL_PHONE_E164'));
+    }
+    final cached = await _profileRepo.getCachedProfileSnapshot();
+    final result = await _dioClient.post<UserProfile>(
+      '/api/v1/auth/google-phone',
+      data: {'formal_phone_e164': phoneE164},
+      parser: (data) => _parseOrThrow(
+        data,
+        (map) => UserProfile.fromJson(
+          map,
+          authProviderOverride: .google,
+          isForeignLabModeOverride: true,
+        ),
+      ),
+    );
 
-    if (token != null && userId != null && name != null) {
-      return AuthSession(
-        accessToken: token,
-        refreshToken: await _secureStorage.read(key: 'jwt_refresh_token') ?? '',
-        userId: userId,
-        displayName: name,
-        email: await _secureStorage.read(key: 'auth_user_email'),
-        phoneMasked: await _secureStorage.read(key: 'auth_user_phone'),
-        hasFz152Consent: true,
+    if (result case Ok(:final value)) {
+      await _profileRepo.cacheProfile(
+        value,
+        authProvider: cached?.authProvider ?? .google,
+        isForeignLabMode: true,
       );
     }
-    return null;
+    return result;
   }
 
   @override
-  Future<void> logout() async {
-    await _secureStorage.deleteAll();
-  }
+  Future<Result<ConsentHistoryListResponse, AppError>> getConsentHistory() =>
+      _dioClient.get<ConsentHistoryListResponse>(
+        '/api/v1/users/me/consents',
+        parser: (data) =>
+            _parseOrThrow(data, ConsentHistoryListResponse.fromJson),
+      );
 
-  Future<void> _persistSession(AuthSession session) async {
-    await _secureStorage.write(
-      key: 'jwt_access_token',
-      value: session.accessToken,
+  @override
+  Future<Result<ConsentJournalEntry, AppError>> recordConsent({
+    required String policyVersion,
+    required String action,
+    required ConsentScopeObject scope,
+  }) async {
+    final result = await _dioClient.post<ConsentJournalEntry>(
+      '/api/v1/users/me/consents',
+      data: {
+        'policy_version': policyVersion,
+        'action': action,
+        'consent_scope': scope.toJson(),
+      },
+      parser: (data) => _parseOrThrow(data, ConsentJournalEntry.fromJson),
     );
-    await _secureStorage.write(
-      key: 'jwt_refresh_token',
-      value: session.refreshToken,
-    );
-    await _secureStorage.write(key: 'auth_user_id', value: session.userId);
-    await _secureStorage.write(
-      key: 'auth_user_name',
-      value: session.displayName,
-    );
-    if (session.email != null) {
-      await _secureStorage.write(key: 'auth_user_email', value: session.email);
-    }
-    if (session.phoneMasked != null) {
-      await _secureStorage.write(
-        key: 'auth_user_phone',
-        value: session.phoneMasked,
+    if (result case Ok()) {
+      await _profileRepo.updateLocalConsentActive(
+        isActive: action != 'revoked' && scope.personalData152fz,
       );
     }
+    return result;
   }
+
+  @override
+  Future<Result<void, AppError>> logout() async {
+    final refreshToken = await _tokenStore.getRefreshToken();
+    await _pushProvider.unregisterCurrentToken();
+    if (refreshToken != null && refreshToken.length >= 32) {
+      await _dioClient.post<void>(
+        '/api/v1/auth/logout',
+        data: {'refresh_token': refreshToken},
+        parser: (_) {},
+      );
+    }
+    await _clearLocalSession();
+    if (!_sessionEndedController.isClosed) {
+      _sessionEndedController.add(null);
+    }
+    return const Ok(null);
+  }
+
+  @override
+  Future<bool> hasCompletedOnboarding() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getBool(_onboardingSeenKey) ?? false;
+  }
+
+  @override
+  Future<void> markOnboardingStepSeen() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_onboardingSeenKey, true);
+  }
+
+  Future<void> _clearLocalSession() async {
+    await _tokenStore.clearAll();
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.clear();
+    await _profileRepo.clearAllLocalUserData();
+  }
+
+  Future<void> _registerPushTokenBestEffort(String deviceId) async {
+    try {
+      await _pushProvider.registerCurrentToken(deviceId: deviceId);
+    } on Exception {
+      return;
+    }
+  }
+
+  bool _isOfflineError(AppError error) =>
+      error.clientAction == ClientErrorAction.queueRetry ||
+      error.httpStatus == 0 ||
+      error.httpStatus == 503;
+
+  T _parseOrThrow<T>(
+    Object? data,
+    Result<T, AppError> Function(Map<String, Object?>) parser,
+  ) {
+    if (data is Map<String, Object?>) {
+      return switch (parser(data)) {
+        Ok(:final value) => value,
+        Err(:final error) => throw error,
+      };
+    }
+    throw AppError.fromCode('VALIDATION_ERROR');
+  }
+
+  static const String _defaultGoogleLabBanner =
+      'Внимание: регистрация и вход через иностранный провайдер (Google OAuth) не соответствуют требованиям 406-ФЗ РФ. Данный способ входа включён исключительно для академического / лабораторного тестирования.';
 }

@@ -5,7 +5,7 @@ version: 1.0.0+1
 
 environment:
   sdk: ">=3.13.4 <4.0.0"
-  flutter: ">=3.29.0"
+  flutter: ">=3.32.0"
 
 dependencies:
   flutter:
@@ -21,15 +21,20 @@ dependencies:
 
   # Map & Spatial Geometry
   flutter_map: ^8.3.2
-  latlong2: ^0.10.1
+  latlong2: ">=0.9.1 <0.11.0"
+  flutter_map_marker_cluster: ^8.1.0
+  flutter_map_cache: ^2.0.0
+  dio_cache_interceptor: ^4.0.0
 
   # Offline Persistence & WAL Engine
   sqflite: ^2.4.6
+  sqlite3: ">=2.7.5 <4.0.0"
   path: ^1.9.1
   path_provider: ^2.1.5
 
-  # Networking & HTTP Interceptors
+  # Networking & OAuth 2.1 + PKCE
   dio: ^5.11.1
+  flutter_appauth: ^9.0.0
 
   # Device Hardware & Health Sensors
   pedometer: ^4.2.0
@@ -46,22 +51,40 @@ dependencies:
   firebase_messaging: ^15.2.4
   flutter_local_notifications: ^19.0.0
 
-  # Utilities & QR
+  # Charts, QR Codes & Camera Scanner
+  fl_chart: ^1.0.0
   qr_flutter: ^4.1.0
+  mobile_scanner: ^6.0.7
+
+  # UI Icons, Typography, Motion & Utilities
+  lucide_icons_flutter: ^3.0.0
+  animations: ^2.0.11
+  google_fonts: ^6.2.1
+  uuid: ^4.5.1
+  url_launcher: ^6.3.1
+  share_plus: ">=11.0.0 <14.0.0"
   intl: ^0.20.3
+  material_ui: ^1.11.1
+  cupertino_ui: ^1.1.7
 
 dev_dependencies:
   flutter_test:
     sdk: flutter
+  integration_test:
+    sdk: flutter
 
-  # Property-Based Testing
+  # Property-Based & BLoC Testing
   glados: ^1.1.7
+  bloc_test: ^10.0.0
 
   # Strict Linters & Analyzers
   dart_code_linter: ^4.4.1
   import_lint: ^2.0.0
   lint: ^2.3.0
   sqflite_common_ffi: ^2.4.7
+
+dependency_overrides:
+  analyzer: ">=13.0.0 <15.0.0"
 
 flutter:
   uses-material-design: true
@@ -70,3 +93,9 @@ flutter:
     - assets/db/client_sqlite_schema.sql
     - assets/errors/error_catalog.json
     - assets/vectors/
+    - assets/fonts/
+
+  fonts:
+    - family: Inter
+      fonts:
+        - asset: assets/fonts/Inter-Variable.ttf

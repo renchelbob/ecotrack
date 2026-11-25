@@ -1,92 +1,95 @@
-import 'package:ecotrack_mobile/core/error/app_error.dart';
-import 'package:flutter/material.dart';
+import 'package:ecotrack_mobile/core/theme/eco_colors.dart';
+import 'package:ecotrack_mobile/core/theme/eco_typography.dart';
+import 'package:material_ui/material_ui.dart';
 
-final class EcoColors {
-  const EcoColors._();
-
-  static const Color primaryGreen = Color(0xFF2E7D32);
-  static const Color primaryGreenLight = Color(0xFF81C784);
-  static const Color darkBackground = Color(0xFF121212);
-  static const Color surface = Color(0xFF1E1E1E);
-  static const Color surfaceVariant = Color(0xFF2A2A2A);
-  static const Color textPrimary = Color(0xFFFFFFFF);
-  static const Color textSecondary = Color(0xFFB0B0B0);
-  static const Color accentOrange = Color(0xFFFF9800);
-  static const Color accentBlue = Color(0xFF29B6F6);
-  static const Color errorRed = Color(0xFFE53935);
-  static const Color divider = Color(0xFF333333);
-}
-
-final class EcoTheme {
-  const EcoTheme._();
-
-  static ThemeData get darkTheme => ThemeData(
-    useMaterial3: true,
-    brightness: Brightness.dark,
-    colorScheme: const ColorScheme.dark(
-      primary: EcoColors.primaryGreen,
-      secondary: EcoColors.primaryGreenLight,
-      surface: EcoColors.surface,
-      error: EcoColors.errorRed,
+abstract final class const EcoTheme._() {
+  static final ThemeData lightTheme = ThemeData(
+    fontFamily: EcoTypography.fontFamily,
+    textTheme: EcoTypography.textTheme,
+    colorScheme: const ColorScheme.light(
+      primary: EcoColors.inkPrimary,
+      secondary: EcoColors.inkSecondary,
+      surfaceContainerHighest: EcoColors.surfaceCard,
+      surfaceContainerLow: EcoColors.surfaceSubtle,
+      outline: EcoColors.borderMuted,
+      error: EcoColors.inkPrimary,
     ),
-    scaffoldBackgroundColor: EcoColors.darkBackground,
+    scaffoldBackgroundColor: EcoColors.surfacePrimary,
     appBarTheme: const AppBarTheme(
-      backgroundColor: EcoColors.surface,
+      backgroundColor: EcoColors.surfacePrimary,
+      foregroundColor: EcoColors.inkPrimary,
       elevation: 0,
+      scrolledUnderElevation: 0,
       centerTitle: true,
+      titleTextStyle: EcoTypography.headlineLarge,
     ),
-    cardTheme: CardThemeData(
-      color: EcoColors.surface,
-      elevation: 1,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+    cardTheme: const CardThemeData(
+      color: EcoColors.surfaceCard,
+      elevation: 0,
+      margin: EdgeInsets.zero,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.all(Radius.circular(20)),
+        side: BorderSide(color: EcoColors.borderMuted, width: 1.5),
+      ),
+    ),
+    bottomSheetTheme: const BottomSheetThemeData(
+      backgroundColor: EcoColors.surfacePrimary,
+      surfaceTintColor: EcoColors.surfacePrimary,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+      ),
+    ),
+    dividerTheme: const DividerThemeData(
+      color: EcoColors.borderMuted,
+      thickness: 1.5,
+      space: 1,
     ),
     elevatedButtonTheme: ElevatedButtonThemeData(
       style: ElevatedButton.styleFrom(
-        backgroundColor: EcoColors.primaryGreen,
-        foregroundColor: Colors.white,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
+        backgroundColor: EcoColors.inkPrimary,
+        foregroundColor: EcoColors.surfacePrimary,
+        disabledBackgroundColor: EcoColors.fillDisabled,
+        disabledForegroundColor: EcoColors.inkSecondary,
+        elevation: 0,
+        minimumSize: const Size(48, 48),
+        shape: const StadiumBorder(),
+        textStyle: EcoTypography.bodyLarge,
+      ),
+    ),
+    outlinedButtonTheme: OutlinedButtonThemeData(
+      style: OutlinedButton.styleFrom(
+        backgroundColor: EcoColors.surfacePrimary,
+        foregroundColor: EcoColors.inkPrimary,
+        disabledForegroundColor: EcoColors.inkSecondary,
+        side: const BorderSide(color: EcoColors.inkPrimary, width: 1.5),
+        minimumSize: const Size(48, 48),
+        shape: const StadiumBorder(),
+        textStyle: EcoTypography.bodyLarge,
+      ),
+    ),
+    textButtonTheme: TextButtonThemeData(
+      style: TextButton.styleFrom(
+        foregroundColor: EcoColors.inkPrimary,
+        minimumSize: const Size(48, 48),
+        textStyle: EcoTypography.bodyLarge,
+      ),
+    ),
+    inputDecorationTheme: const InputDecorationTheme(
+      filled: true,
+      fillColor: EcoColors.surfaceSubtle,
+      contentPadding: EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+      border: OutlineInputBorder(
+        borderRadius: BorderRadius.all(Radius.circular(16)),
+        borderSide: BorderSide(color: EcoColors.borderMuted, width: 1.5),
+      ),
+      enabledBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.all(Radius.circular(16)),
+        borderSide: BorderSide(color: EcoColors.borderMuted, width: 1.5),
+      ),
+      focusedBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.all(Radius.circular(16)),
+        borderSide: BorderSide(color: EcoColors.inkPrimary, width: 1.5),
       ),
     ),
   );
-}
-
-/// Unified error banner presenter complying with negative constraint:
-/// No raw SnackBar spam, deterministic action handling.
-final class EcoErrorBannerPresenter {
-  const EcoErrorBannerPresenter._();
-
-  static void show(BuildContext context, AppError error) {
-    ScaffoldMessenger.of(context)
-      ..hideCurrentSnackBar()
-      ..showSnackBar(
-        SnackBar(
-          backgroundColor: switch (error.clientAction) {
-            'queue_retry' => EcoColors.accentOrange,
-            'show_banner' => EcoColors.errorRed,
-            _ => EcoColors.surfaceVariant,
-          },
-          behavior: SnackBarBehavior.floating,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(12),
-          ),
-          content: Row(
-            children: [
-              Icon(switch (error.clientAction) {
-                'queue_retry' => Icons.cloud_off,
-                'show_banner' => Icons.error_outline,
-                _ => Icons.info_outline,
-              }, color: Colors.white),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Text(
-                  error.uiMessageRu,
-                  style: const TextStyle(color: Colors.white, fontSize: 13),
-                ),
-              ),
-            ],
-          ),
-        ),
-      );
-  }
 }

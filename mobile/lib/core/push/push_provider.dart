@@ -1,51 +1,29 @@
 import 'dart:async';
-import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 
-abstract interface class PushProvider {
+final class const PushMessagePayload({
+  required final String title,
+  required final String body,
+  final String? deepLinkUri,
+  final Map<String, Object?> data = const <String, Object?>{},
+});
+
+abstract interface class const PushProvider() {
   Future<void> initialize();
-  Future<String?> getDeviceToken();
-  Future<void> showLocalNotification({
-    required int id,
-    required String title,
-    required String body,
-    String? payload,
+
+  Future<String?> getDevicePushToken();
+
+  Stream<String> get onTokenRefresh;
+
+  Stream<PushMessagePayload> get onForegroundMessage;
+
+  Stream<String> get onNotificationTapDeepLink;
+
+  Future<void> registerCurrentToken({
+    required String deviceId,
+    String platform = 'fcm_android',
   });
-}
 
-final class LocalPushProvider implements PushProvider {
-  LocalPushProvider({FlutterLocalNotificationsPlugin? plugin})
-    : _plugin = plugin ?? FlutterLocalNotificationsPlugin();
+  Future<void> unregisterCurrentToken();
 
-  final FlutterLocalNotificationsPlugin _plugin;
-
-  @override
-  Future<void> initialize() async {
-    const androidSettings = AndroidInitializationSettings(
-      '@mipmap/ic_launcher',
-    );
-    const initSettings = InitializationSettings(android: androidSettings);
-    await _plugin.initialize(initSettings);
-  }
-
-  @override
-  Future<String?> getDeviceToken() async => 'mock-device-token-ecotrack';
-
-  @override
-  Future<void> showLocalNotification({
-    required int id,
-    required String title,
-    required String body,
-    String? payload,
-  }) async {
-    const androidDetails = AndroidNotificationDetails(
-      'ecotrack_general',
-      'ЭкоТрек Уведомления',
-      channelDescription:
-          'Напоминания о шагах, целях и экологических челленджах',
-      importance: Importance.high,
-      priority: Priority.high,
-    );
-    const details = NotificationDetails(android: androidDetails);
-    await _plugin.show(id, title, body, details, payload: payload);
-  }
+  Future<void> dispose();
 }

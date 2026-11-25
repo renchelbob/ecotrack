@@ -1,162 +1,250 @@
+import 'package:ecotrack_mobile/core/error/app_error.dart';
 import 'package:ecotrack_mobile/features/auth_fz152/domain/auth_models.dart';
-import 'package:ecotrack_mobile/features/home_mascot/domain/home_models.dart';
 import 'package:ecotrack_mobile/features/map_activity/domain/map_models.dart';
 import 'package:ecotrack_mobile/features/profile_social/domain/profile_models.dart';
 import 'package:ecotrack_mobile/features/shop/domain/shop_models.dart';
-import 'package:flutter_test/flutter_test.dart';
+import 'package:ecotrack_mobile/features/stats/domain/stats_models.dart';
+import 'package:glados/glados.dart';
 
 void main() {
-  group('DTO Round-Trip Serialization Tests', () {
-    test('DailyActivitySummary fromJson / toJson parity', () {
-      const summary = DailyActivitySummary(
-        id: 'summary_001',
+  setUpAll(() {
+    ErrorCatalogRegistry.instance.loadFromJsonString('''
+{
+  "errors": {
+    "VALIDATION_ERROR": {
+      "code": "VALIDATION_ERROR",
+      "http_status": 422,
+      "domain": "validation",
+      "retryable": false,
+      "client_action": "show_inline",
+      "ui_message_ru": "Проверьте корректность данных"
+    }
+  }
+}
+''');
+  });
+
+  group('DTO Round-Trip Property-Based Serialization Tests', () {
+    Glados3(
+      any.intInRange(0, 100000),
+      any.intInRange(40, 120),
+      any.intInRange(0, 50000),
+    ).test('DailyActivitySummary toJson / fromJson round-trip parity', (
+      steps,
+      strideCm,
+      points,
+    ) {
+      final totalDist = (steps * strideCm) / 100.0;
+      final summary = DailyActivitySummary(
+        id: 'sum-$steps',
         activityDate: '2026-11-24',
-        validatedSteps: 8520,
-        totalStepDistanceM: 6304.8,
-        allocatedGpsDistanceM: 1500.0,
-        unallocatedStepDistanceM: 4804.8,
-        allocatedCo2SavedGrams: 297,
-        autoDefaultCo2SavedGrams: 220,
-        totalCo2SavedGrams: 517,
-        pointsBalance: 850,
-        isAutoCalculated: false,
-        streakDays: 7,
-        mascotMood: MascotMood.thriving,
+        rawSensorSteps: steps,
+        validatedSteps: steps,
+        strideLengthCm: strideCm,
+        totalStepDistanceM: totalDist,
+        allocatedGpsDistanceM: 0.0,
+        unallocatedStepDistanceM: totalDist,
+        allocatedCo2SavedGrams: 0,
+        autoDefaultCo2SavedGrams: (totalDist * 0.04592).round(),
+        totalCo2SavedGrams: (totalDist * 0.04592).round(),
+        pointsAwardedForDay: steps ~/ 100,
+        pointsDeltaApplied: 0,
+        pointsBalance: points,
+        isAutoCalculated: true,
+        antifraudFlagged: false,
       );
 
-      final json = summary.toJson();
-      final parsed = DailyActivitySummary.fromJson(json);
-
+      final parsed = DailyActivitySummary.fromJson(summary.toJson());
       expect(parsed.isOk, isTrue);
-      final value = parsed.okOrNull;
-      expect(value, isNotNull);
+      final value = parsed.valueOrNull;
       expect(value?.id, equals(summary.id));
-      expect(value?.activityDate, equals(summary.activityDate));
       expect(value?.validatedSteps, equals(summary.validatedSteps));
+      expect(value?.strideLengthCm, equals(summary.strideLengthCm));
       expect(value?.totalCo2SavedGrams, equals(summary.totalCo2SavedGrams));
       expect(value?.pointsBalance, equals(summary.pointsBalance));
-      expect(value?.streakDays, equals(summary.streakDays));
-      expect(value?.mascotMood, equals(summary.mascotMood));
     });
 
-    test('UserVehicle fromJson / toJson parity', () {
-      const vehicle = UserVehicle(
-        name: 'Кроссовер 2.0',
-        fuelType: 'Бензин АИ-95',
-        litersPer100Km: 9.8,
-      );
+    Glados2(any.choose(FuelType.values), any.doubleInRange(1.0, 45.0)).test(
+      'UserVehicle toJson / fromJson round-trip parity',
+      (fuel, consumption) {
+        final gKm = (fuel.emissionFactorGPerUnit * consumption) / 100.0;
+        final vehicle = UserVehicle(
+          id: 'veh-1',
+          vehicleName: 'Eco Car',
+          fuel: fuel,
+          consumptionPer100km: consumption,
+          fuelEmissionFactorGPerUnit: fuel.emissionFactorGPerUnit,
+          computedCo2GPerKm: gKm,
+          computedCo2GPerMeter: gKm / 1000.0,
+          updatedAt: '2026-11-24T12:00:00Z',
+        );
 
-      final json = vehicle.toJson();
-      final parsed = UserVehicle.fromJson(json);
+        final parsed = UserVehicle.fromJson(vehicle.toJson());
+        expect(parsed.isOk, isTrue);
+        final value = parsed.valueOrNull;
+        expect(value?.fuel, equals(fuel));
+        expect(value?.consumptionPer100km, closeTo(consumption, 0.0001));
+        expect(value?.computedCo2GPerKm, closeTo(gKm, 0.0001));
+      },
+    );
 
-      expect(parsed.name, equals(vehicle.name));
-      expect(parsed.fuelType, equals(vehicle.fuelType));
-      expect(parsed.litersPer100Km, closeTo(vehicle.litersPer100Km, 0.001));
-    });
-
-    test('UserProfile fromJson / toJson parity', () {
+    Glados2(
+      any.intInRange(1000, 30000),
+      any.choose(MascotMoodState.values),
+    ).test('UserProfile toJson / fromJson round-trip parity', (stepGoal, mood) {
       final profile = UserProfile(
-        id: 'usr_01935c10-0000-7000-8000-000000000001',
-        displayName: 'Вадим Нопин',
-        email: 'vadim@vyatsu.ru',
-        phoneMasked: '+7 (***) ***-12-34',
-        friendCode: 'ECO-VDM2-2026',
-        pointsBalance: 450,
-        dailyStepGoal: 10000,
-        vehicle: UserVehicle.defaultVehicle(),
+        id: 'usr-1',
+        email: 'eco@vyatsu.ru',
+        displayName: 'Иван',
+        friendCode: 'ECO-1234-ABCD',
+        requiresFormalPhone: false,
+        pointsBalance: 250,
+        lifetimePointsEarned: 500,
+        lifetimeCo2SavedGrams: 12000,
+        currentStreakDays: 4,
+        longestStreakDays: 9,
+        streakFreezeCount: 1,
+        dailyStepGoal: stepGoal,
+        dailyCo2GoalGrams: 1500,
+        isGpsTrackingEnabled: true,
+        isStatsVisibleToFriends: true,
+        is152fzConsentActive: true,
+        mascot: MascotVisualState(mood: mood, dailyGoalProgressRatio: 0.75),
+        createdAt: '2026-11-24T12:00:00Z',
       );
 
-      final json = profile.toJson();
-      final parsed = UserProfile.fromJson(json);
-
+      final parsed = UserProfile.fromJson(profile.toJson());
       expect(parsed.isOk, isTrue);
-      final value = parsed.okOrNull;
-      expect(value, isNotNull);
-      expect(value?.id, equals(profile.id));
-      expect(value?.displayName, equals(profile.displayName));
-      expect(value?.email, equals(profile.email));
-      expect(value?.phoneMasked, equals(profile.phoneMasked));
-      expect(value?.friendCode, equals(profile.friendCode));
-      expect(value?.pointsBalance, equals(profile.pointsBalance));
-      expect(value?.dailyStepGoal, equals(profile.dailyStepGoal));
-      expect(value?.vehicle.name, equals(profile.vehicle.name));
+      final value = parsed.valueOrNull;
+      expect(value?.dailyStepGoal, equals(stepGoal));
+      expect(value?.mascot.mood, equals(mood));
+      expect(value?.friendCode, equals('ECO-1234-ABCD'));
     });
 
-    test('WastePoint fromJson / toJson parity', () {
-      const point = WastePoint(
-        id: 'wp_kirov_01',
-        title: 'Эко-пункт на Ленина',
-        address: 'г. Киров, ул. Ленина, 105',
-        latitude: 58.6035,
-        longitude: 49.6680,
-        wasteTypes: ['Пластик', 'Бумага', 'Стекло'],
-        trustScore: 88.5,
+    Glados3(
+      any.doubleInRange(-89.0, 89.0),
+      any.doubleInRange(-179.0, 179.0),
+      any.choose(WastePointStatus.values),
+    ).test('WastePointMapItem toJson / fromJson round-trip parity', (
+      lat,
+      lon,
+      status,
+    ) {
+      final point = WastePointMapItem(
+        id: 'wp-1',
+        title: 'Пункт РСО',
+        addressText: 'ул. Ленина, 10',
+        acceptedFractions: const [
+          WasteFractionCode.plastic,
+          WasteFractionCode.glass,
+        ],
+        lat: lat,
+        lon: lon,
+        status: status,
+        trustScore: 87.5,
+        confirmationsCount: 5,
+        issuesCount: 0,
       );
 
-      final json = point.toJson();
-      final parsed = WastePoint.fromJson(json);
-
+      final parsed = WastePointMapItem.fromJson(point.toJson());
       expect(parsed.isOk, isTrue);
-      final value = parsed.okOrNull;
-      expect(value, isNotNull);
-      expect(value?.id, equals(point.id));
-      expect(value?.title, equals(point.title));
-      expect(value?.address, equals(point.address));
-      expect(value?.latitude, closeTo(point.latitude, 0.0001));
-      expect(value?.longitude, closeTo(point.longitude, 0.0001));
-      expect(value?.wasteTypes, equals(point.wasteTypes));
-      expect(value?.trustScore, closeTo(point.trustScore, 0.1));
+      final value = parsed.valueOrNull;
+      expect(value?.lat, closeTo(lat, 0.0001));
+      expect(value?.lon, closeTo(lon, 0.0001));
+      expect(value?.status, equals(status));
     });
 
-    test('ShopCoupon fromJson / toJson parity', () {
-      const coupon = ShopCoupon(
-        id: 'shop_coffee_01',
-        title: 'Скидка 20% на кофе в свою кружку',
-        partnerName: 'Бодрый День',
-        costPoints: 150,
-        discountPercent: 20,
-        category: 'Напитки',
-        description: 'Экологичная скидка для тех, кто бережет планету.',
-      );
+    Glados2(any.intInRange(10, 5000), any.choose(ShopItemType.values)).test(
+      'ShopCatalogItem & ShopOrderDetail round-trip parity',
+      (price, itemType) {
+        final item = ShopCatalogItem(
+          id: 'item-1',
+          sku: 'SKU-1',
+          itemType: itemType,
+          title: 'Купон',
+          subtitle: 'Скидка',
+          description: 'Описание',
+          pricePoints: price,
+          maxPerUserPerDay: 2,
+          imageAssetKey: 'coupon_coffee',
+        );
+        final parsedItem = ShopCatalogItem.fromJson(item.toJson());
+        expect(parsedItem.isOk, isTrue);
+        expect(parsedItem.valueOrNull?.pricePoints, equals(price));
+        expect(parsedItem.valueOrNull?.itemType, equals(itemType));
 
-      final json = coupon.toJson();
-      final parsed = ShopCoupon.fromJson(json);
+        final order = ShopOrderDetail(
+          id: 'ord-1',
+          idempotencyKey: '0195a1b2-c3d4-7000-8000-000000000001',
+          status: OrderStatus.completed,
+          totalPoints: price,
+          remainingPointsBalance: 100,
+          itemCount: 1,
+          lineItems: [
+            ShopOrderLineItem(
+              id: 'line-1',
+              shopItemId: 'item-1',
+              title: 'Купон',
+              itemType: itemType,
+              quantity: 1,
+              unitPricePoints: price,
+              lineTotalPoints: price,
+              couponCode: 'ECO-2026',
+              qrPayload: 'ecotrack://qr/1',
+            ),
+          ],
+          createdAt: '2026-11-24T12:00:00Z',
+        );
+        final parsedOrder = ShopOrderDetail.fromJson(order.toJson());
+        expect(parsedOrder.isOk, isTrue);
+        expect(
+          parsedOrder.valueOrNull?.lineItems.single.couponCode,
+          equals('ECO-2026'),
+        );
+      },
+    );
 
-      expect(parsed.isOk, isTrue);
-      final value = parsed.okOrNull;
-      expect(value, isNotNull);
-      expect(value?.id, equals(coupon.id));
-      expect(value?.title, equals(coupon.title));
-      expect(value?.partnerName, equals(coupon.partnerName));
-      expect(value?.costPoints, equals(coupon.costPoints));
-      expect(value?.discountPercent, equals(coupon.discountPercent));
-      expect(value?.category, equals(coupon.category));
-    });
+    Glados3(any.bool, any.bool, any.intInRange(-500, 500)).test(
+      'ConsentScopeObject & PointLedgerItem round-trip parity',
+      (pdn, gps, delta) {
+        final scope = ConsentScopeObject(
+          personalData152fz: pdn,
+          healthStepsSensor: true,
+          backgroundGeolocation: gps,
+        );
+        final parsedScope = ConsentScopeObject.fromJson(scope.toJson());
+        expect(parsedScope.isOk, isTrue);
+        expect(parsedScope.valueOrNull?.personalData152fz, equals(pdn));
+        expect(parsedScope.valueOrNull?.backgroundGeolocation, equals(gps));
 
-    test('AuthSession fromJson / toJson parity', () {
-      const session = AuthSession(
-        accessToken: 'jwt_mock_access_token_12345',
-        refreshToken: 'jwt_mock_refresh_token_67890',
-        userId: 'usr_01935c10-0000-7000-8000-000000000001',
-        displayName: 'Вадим Нопин',
-        email: 'vadim@vyatsu.ru',
-        phoneMasked: '+7 (***) ***-12-34',
-        hasFz152Consent: true,
-      );
+        final ledger = PointLedgerItem(
+          id: 'led-1',
+          idempotencyKey: '0195a1b2-c3d4-7000-8000-000000000002',
+          operationType: LedgerOperationType.dailyStepsReward,
+          pointsDelta: delta,
+          co2DeltaGrams: delta * 10,
+          description: 'Награда',
+          createdAt: '2026-11-24T12:00:00Z',
+        );
+        final parsedLedger = PointLedgerItem.fromJson(ledger.toJson());
+        expect(parsedLedger.isOk, isTrue);
+        expect(parsedLedger.valueOrNull?.pointsDelta, equals(delta));
 
-      final json = session.toJson();
-      final parsed = AuthSession.fromJson(json);
-
-      expect(parsed.isOk, isTrue);
-      final value = parsed.okOrNull;
-      expect(value, isNotNull);
-      expect(value?.accessToken, equals(session.accessToken));
-      expect(value?.refreshToken, equals(session.refreshToken));
-      expect(value?.userId, equals(session.userId));
-      expect(value?.displayName, equals(session.displayName));
-      expect(value?.email, equals(session.email));
-      expect(value?.phoneMasked, equals(session.phoneMasked));
-      expect(value?.hasFz152Consent, isTrue);
-    });
+        final eq = EcoEquivalentsMetrics(
+          totalCo2SavedGrams: delta.abs() * 10,
+          treesPlantedEquivalent: 0.5,
+          carKmAvoided: 12.4,
+          smartphoneChargesEquivalent: 100,
+          plasticBottlesRecycledEquivalent: 40,
+          ledBulbHoursEquivalent: 300,
+        );
+        final parsedEq = EcoEquivalentsMetrics.fromJson(eq.toJson());
+        expect(parsedEq.isOk, isTrue);
+        expect(
+          parsedEq.valueOrNull?.totalCo2SavedGrams,
+          equals(delta.abs() * 10),
+        );
+      },
+    );
   });
 }
