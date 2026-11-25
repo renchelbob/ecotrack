@@ -755,14 +755,26 @@ final class const _SmallMetricCol({
 final class const _AddRouteCtaButton() extends StatelessWidget {
   @override
   Widget build(BuildContext context) => Center(
-    child: ElevatedButton.icon(
-      onPressed: () => context.go('/map?mode=routes'),
-      icon: const Icon(LucideIcons.plus, size: 18),
-      label: const Text('Отметить маршрут на карте'),
-      style: ElevatedButton.styleFrom(
-        backgroundColor: EcoColors.inkPrimary,
-        foregroundColor: EcoColors.surfacePrimary,
-        padding: const .symmetric(horizontal: 20, vertical: 14),
+    child: Tooltip(
+      message: 'Открыть калькулятор активности',
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(minWidth: 76, minHeight: 48),
+        child: Material(
+          color: const Color(0xFFB8B8B8),
+          borderRadius: const .all(.circular(28)),
+          child: InkWell(
+            onTap: () => context.go('/map'),
+            borderRadius: const .all(.circular(28)),
+            child: const Padding(
+              padding: .symmetric(horizontal: 24, vertical: 10),
+              child: Icon(
+                LucideIcons.plus,
+                size: 26,
+                color: EcoColors.inkPrimary,
+              ),
+            ),
+          ),
+        ),
       ),
     ),
   );

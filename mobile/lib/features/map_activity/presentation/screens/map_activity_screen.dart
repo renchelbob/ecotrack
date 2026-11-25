@@ -22,7 +22,7 @@ import 'package:material_ui/material_ui.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 final class const MapActivityScreen({
-  final MapScreenMode initialMode = .myRoutes,
+  final MapScreenMode initialMode = .calculator,
   final String? initialDateIso,
   super.key,
 }) extends StatefulWidget {
@@ -284,19 +284,24 @@ final class _MapActivityScreenState() extends State<MapActivityScreen> {
             MapActivityLoading() => const Center(
               child: CircularProgressIndicator(color: EcoColors.inkPrimary),
             ),
-            MapActivityReady() => _MapViewportStack(
-              ready: state,
-              mapController: _mapController,
-              tileCacheStore: _tileCacheStore,
-              segmentHitNotifier: _segmentHitNotifier,
-              currentZoom: _currentZoom,
-              onOpenGpsInterval: () => unawaited(_openGpsIntervalPicker(state)),
-              onOpenTransportSheet: () =>
-                  unawaited(_openTransportSheet(state: state)),
-              onOpenSuggestModal: () =>
-                  unawaited(_openSuggestPointModal(state)),
-              onNavigatePoint: (pt) => unawaited(_openExternalNavigator(pt)),
-            ),
+            MapActivityReady() =>
+              state.mode == .calculator
+                  ? _CalculatorView(ready: state)
+                  : _MapViewportStack(
+                      ready: state,
+                      mapController: _mapController,
+                      tileCacheStore: _tileCacheStore,
+                      segmentHitNotifier: _segmentHitNotifier,
+                      currentZoom: _currentZoom,
+                      onOpenGpsInterval: () =>
+                          unawaited(_openGpsIntervalPicker(state)),
+                      onOpenTransportSheet: () =>
+                          unawaited(_openTransportSheet(state: state)),
+                      onOpenSuggestModal: () =>
+                          unawaited(_openSuggestPointModal(state)),
+                      onNavigatePoint: (pt) =>
+                          unawaited(_openExternalNavigator(pt)),
+                    ),
           },
         ),
       );
@@ -679,7 +684,12 @@ final class const _TopModeToggleBar({
         child: Row(
           children: [
             _ModeToggleSegment(
-              label: 'Мои маршруты',
+              label: 'Калькулятор',
+              selected: mode == .calculator,
+              onTap: () => onModeSelected(.calculator),
+            ),
+            _ModeToggleSegment(
+              label: 'Маршруты',
               selected: mode == .myRoutes,
               onTap: () => onModeSelected(.myRoutes),
             ),
@@ -711,11 +721,21 @@ final class const _ModeToggleSegment({
           borderRadius: const .all(.circular(999)),
         ),
         child: Center(
-          child: Text(
-            label,
-            style: EcoTypography.bodyMedium.copyWith(
-              color: selected ? EcoColors.surfacePrimary : EcoColors.inkPrimary,
-              fontWeight: .w600,
+          child: Padding(
+            padding: const .symmetric(horizontal: 6),
+            child: FittedBox(
+              fit: .scaleDown,
+              child: Text(
+                label,
+                maxLines: 1,
+                style: EcoTypography.bodyMedium.copyWith(
+                  fontSize: 13,
+                  color: selected
+                      ? EcoColors.surfacePrimary
+                      : EcoColors.inkPrimary,
+                  fontWeight: .w600,
+                ),
+              ),
             ),
           ),
         ),
@@ -1392,4 +1412,442 @@ final class _SuggestWastePointSheetState()
       ),
     );
   }
+}
+
+enum _CalcActivityKind(final String labelRu, final double gPerKm) {
+  walk('Прогулка', 45.92),
+  car('Автомобиль', 181.74),
+  bus('Автобус', 89.0),
+  metro('Метро', 35.0),
+  scooter('Самокат', 62.0),
+  tram('Трамвай / Троллейбус', 42.0),
+}
+
+final class const _CalculatorView({required final MapActivityReady ready})
+    extends StatefulWidget {
+  @override
+  State<_CalculatorView> createState() => _CalculatorViewState();
+}
+
+final class _CalculatorViewState() extends State<_CalculatorView> {
+  _CalcActivityKind _selected = .walk;
+  double _distanceKm = 2.5;
+
+  double _effectiveGPerKm() => _selected == .car
+      ? widget.ready.routeView.userCarGPerKm
+      : _selected.gPerKm;
+
+  int _previewCo2Grams() => (_distanceKm * _effectiveGPerKm()).round();
+
+  String _formatKm(double km) => km.toStringAsFixed(1).replaceAll('.', ',');
+
+  void _stepDistance(double delta) {
+    setState(() {
+      _distanceKm = (_distanceKm + delta).clamp(0.5, 50.0);
+    });
+  }
+
+  void _openOtherSheet() {
+    showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: EcoColors.surfacePrimary,
+      shape: const RoundedRectangleBorder(
+        borderRadius: .vertical(top: .circular(24)),
+      ),
+      builder: (ctx) => SafeArea(
+        child: Padding(
+          padding: const .fromLTRB(20, 16, 20, 24),
+          child: Column(
+            mainAxisSize: .min,
+            crossAxisAlignment: .stretch,
+            children: [
+              const Text(
+                'Другой вид транспорта',
+                style: EcoTypography.titleMedium,
+              ),
+              const SizedBox(height: 12),
+              for (final kind in _CalcActivityKind.values)
+                ListTile(
+                  title: Text(kind.labelRu, style: EcoTypography.bodyLarge),
+                  trailing: Text(
+                    '${kind.gPerKm.round()} г/км',
+                    style: EcoTypography.labelSmall,
+                  ),
+                  selected: _selected == kind,
+                  onTap: () {
+                    setState(() => _selected = kind);
+                    Navigator.of(ctx).pop();
+                  },
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final co2 = _previewCo2Grams();
+    final distanceLabel = '${_formatKm(_distanceKm)} км';
+
+    return SafeArea(
+      child: ListView(
+        padding: const .fromLTRB(20, 10, 20, 104),
+        children: [
+          const Center(
+            child: Text('Калькулятор', style: EcoTypography.titleMedium),
+          ),
+          const SizedBox(height: 10),
+          _TopModeToggleBar(
+            mode: widget.ready.mode,
+            onModeSelected: (m) =>
+                context.read<MapActivityBloc>().add(MapModeToggled(m)),
+          ),
+          const SizedBox(height: 18),
+          Text(
+            'Записать активность',
+            style: EcoTypography.headlineLarge.copyWith(
+              fontSize: 22,
+              fontWeight: .w400,
+            ),
+          ),
+          const SizedBox(height: 10),
+          _CalcPreviewCard(
+            co2Grams: co2,
+            activityLabel: _selected.labelRu,
+            distanceLabel: distanceLabel,
+            isSubmitting: widget.ready.isSubmitting,
+            onSubmit: () => context.read<MapActivityBloc>().add(
+              MapCalculatorLogged(
+                activityLabel: _selected.labelRu,
+                distanceKm: _distanceKm,
+                previewCo2Grams: co2,
+              ),
+            ),
+          ),
+          const SizedBox(height: 18),
+          Text(
+            'Выбор активности',
+            style: EcoTypography.headlineLarge.copyWith(
+              fontSize: 22,
+              fontWeight: .w400,
+            ),
+          ),
+          const SizedBox(height: 10),
+          _CalcActivityTile(
+            label: 'Прогулка',
+            icon: LucideIcons.footprints,
+            selected: _selected == .walk,
+            height: 82,
+            onTap: () => setState(() => _selected = .walk),
+          ),
+          const SizedBox(height: 10),
+          Row(
+            children: [
+              Expanded(
+                child: _CalcActivityTile(
+                  label: 'Автомобиль',
+                  icon: LucideIcons.car,
+                  selected: _selected == .car,
+                  height: 132,
+                  alignIconBottom: true,
+                  onTap: () => setState(() => _selected = .car),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  children: [
+                    _CalcActivityTile(
+                      label: 'Автобус',
+                      icon: LucideIcons.bus,
+                      selected: _selected == .bus,
+                      height: 61,
+                      onTap: () => setState(() => _selected = .bus),
+                    ),
+                    const SizedBox(height: 10),
+                    _CalcActivityTile(
+                      label: 'Метро',
+                      icon: LucideIcons.tramFront,
+                      selected: _selected == .metro,
+                      height: 61,
+                      onTap: () => setState(() => _selected = .metro),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          Row(
+            children: [
+              Expanded(
+                child: _CalcActivityTile(
+                  label: 'Самокат',
+                  icon: LucideIcons.bike,
+                  selected: _selected == .scooter,
+                  height: 86,
+                  alignIconBottom: true,
+                  onTap: () => setState(() => _selected = .scooter),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: _CalcActivityTile(
+                  label: 'Другое',
+                  icon: LucideIcons.arrowRight,
+                  selected: _selected == .tram,
+                  height: 86,
+                  alignIconBottom: true,
+                  onTap: _openOtherSheet,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 14),
+          _DistanceStepperCard(
+            formattedKm: _formatKm(_distanceKm),
+            onDecrement: () => _stepDistance(-0.5),
+            onIncrement: () => _stepDistance(0.5),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+final class const _CalcPreviewCard({
+  required final int co2Grams,
+  required final String activityLabel,
+  required final String distanceLabel,
+  required final bool isSubmitting,
+  required final VoidCallback onSubmit,
+}) extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) => DecoratedBox(
+    decoration: const BoxDecoration(
+      borderRadius: .all(.circular(20)),
+      border: .fromBorderSide(
+        BorderSide(color: EcoColors.inkPrimary, width: 1.5),
+      ),
+      gradient: LinearGradient(
+        colors: [EcoColors.surfacePrimary, EcoColors.surfaceCard],
+      ),
+    ),
+    child: Padding(
+      padding: const .fromLTRB(18, 16, 16, 16),
+      child: Row(
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: .start,
+              children: [
+                Text(
+                  '+$co2Grams г',
+                  style: EcoTypography.displayHero.copyWith(fontSize: 34),
+                ),
+                const SizedBox(height: 10),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 6,
+                  children: [
+                    _PreviewChip(text: activityLabel),
+                    _PreviewChip(text: distanceLabel),
+                  ],
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 10),
+          Tooltip(
+            message: 'Записать активность',
+            child: SizedBox(
+              width: 56,
+              height: 56,
+              child: Material(
+                color: const Color(0xFFB5B5B5),
+                shape: const CircleBorder(),
+                child: InkWell(
+                  onTap: isSubmitting ? null : onSubmit,
+                  customBorder: const CircleBorder(),
+                  child: Center(
+                    child: isSubmitting
+                        ? const SizedBox(
+                            width: 20,
+                            height: 20,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              color: EcoColors.inkPrimary,
+                            ),
+                          )
+                        : const Icon(
+                            LucideIcons.plus,
+                            size: 26,
+                            color: EcoColors.inkPrimary,
+                          ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    ),
+  );
+}
+
+final class const _PreviewChip({required final String text})
+    extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) => DecoratedBox(
+    decoration: const BoxDecoration(
+      borderRadius: .all(.circular(12)),
+      border: .fromBorderSide(
+        BorderSide(color: EcoColors.inkPrimary, width: 1.2),
+      ),
+    ),
+    child: Padding(
+      padding: const .symmetric(horizontal: 14, vertical: 5),
+      child: Text(
+        text,
+        style: EcoTypography.labelSmall.copyWith(color: EcoColors.inkPrimary),
+      ),
+    ),
+  );
+}
+
+final class const _CalcActivityTile({
+  required final String label,
+  required final IconData icon,
+  required final bool selected,
+  required final double height,
+  final bool alignIconBottom = false,
+  required final VoidCallback onTap,
+}) extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) => SizedBox(
+    height: height,
+    child: Material(
+      color: EcoColors.surfaceCard,
+      shape: RoundedRectangleBorder(
+        borderRadius: const .all(.circular(20)),
+        side: selected
+            ? const BorderSide(color: EcoColors.inkPrimary, width: 1.8)
+            : .none,
+      ),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: const .all(.circular(20)),
+        child: Padding(
+          padding: const .symmetric(horizontal: 16, vertical: 14),
+          child: alignIconBottom
+              ? Column(
+                  crossAxisAlignment: .start,
+                  mainAxisAlignment: .spaceBetween,
+                  children: [
+                    Text(
+                      label,
+                      style: EcoTypography.bodyLarge.copyWith(
+                        fontWeight: .w500,
+                      ),
+                    ),
+                    Align(
+                      alignment: .bottomRight,
+                      child: Icon(icon, size: 34, color: EcoColors.inkPrimary),
+                    ),
+                  ],
+                )
+              : Row(
+                  mainAxisAlignment: .spaceBetween,
+                  children: [
+                    Expanded(
+                      child: Text(
+                        label,
+                        style: EcoTypography.bodyLarge.copyWith(
+                          fontWeight: .w500,
+                        ),
+                      ),
+                    ),
+                    Icon(icon, size: 32, color: EcoColors.inkPrimary),
+                  ],
+                ),
+        ),
+      ),
+    ),
+  );
+}
+
+final class const _DistanceStepperCard({
+  required final String formattedKm,
+  required final VoidCallback onDecrement,
+  required final VoidCallback onIncrement,
+}) extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) => DecoratedBox(
+    decoration: const BoxDecoration(
+      color: EcoColors.surfaceCard,
+      borderRadius: .all(.circular(20)),
+    ),
+    child: Padding(
+      padding: const .fromLTRB(20, 14, 20, 16),
+      child: Column(
+        children: [
+          Text(
+            'Расстояние',
+            style: EcoTypography.titleMedium.copyWith(fontWeight: .w400),
+          ),
+          const SizedBox(height: 10),
+          Row(
+            mainAxisAlignment: .spaceEvenly,
+            children: [
+              _StepperCircleButton(
+                icon: LucideIcons.minus,
+                tooltip: 'Уменьшить на 0,5 км',
+                onTap: onDecrement,
+              ),
+              Column(
+                children: [
+                  Text(
+                    formattedKm,
+                    style: EcoTypography.displayHero.copyWith(fontSize: 34),
+                  ),
+                  const Text('км', style: EcoTypography.bodyMedium),
+                ],
+              ),
+              _StepperCircleButton(
+                icon: LucideIcons.plus,
+                tooltip: 'Увеличить на 0,5 км',
+                onTap: onIncrement,
+              ),
+            ],
+          ),
+        ],
+      ),
+    ),
+  );
+}
+
+final class const _StepperCircleButton({
+  required final IconData icon,
+  required final String tooltip,
+  required final VoidCallback onTap,
+}) extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) => Tooltip(
+    message: tooltip,
+    child: SizedBox(
+      width: 48,
+      height: 48,
+      child: Material(
+        color: const Color(0xFFB5B5B5),
+        shape: const CircleBorder(),
+        child: InkWell(
+          onTap: onTap,
+          customBorder: const CircleBorder(),
+          child: Icon(icon, size: 22, color: EcoColors.inkPrimary),
+        ),
+      ),
+    ),
+  );
 }

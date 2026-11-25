@@ -484,11 +484,11 @@ void main() {
         await tester.pump(const Duration(milliseconds: 50));
 
         expect(find.byType(FloatingBottomNavBar), findsOneWidget);
-        expect(find.text('Статистика'), findsOneWidget);
-        expect(find.text('Карта'), findsOneWidget);
-        expect(find.text('Главная'), findsOneWidget);
-        expect(find.text('Магазин'), findsOneWidget);
-        expect(find.text('Профиль'), findsOneWidget);
+        expect(find.byTooltip('Статистика'), findsOneWidget);
+        expect(find.byTooltip('Калькулятор'), findsOneWidget);
+        expect(find.byTooltip('Главная'), findsOneWidget);
+        expect(find.byTooltip('Магазин'), findsOneWidget);
+        expect(find.byTooltip('Профиль'), findsOneWidget);
 
         final listenable = AuthRouterListenable(authBloc);
         final router = AppRouter.createRouter(

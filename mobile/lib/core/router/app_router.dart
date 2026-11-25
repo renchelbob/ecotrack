@@ -103,9 +103,12 @@ final class AppRouter._() {
               GoRoute(
                 path: '/map',
                 builder: (context, state) {
-                  final mode = state.uri.queryParameters['mode'] == 'rso'
-                      ? MapScreenMode.recyclingMap
-                      : MapScreenMode.myRoutes;
+                  final modeParam = state.uri.queryParameters['mode'];
+                  final mode = switch (modeParam) {
+                    'rso' => MapScreenMode.recyclingMap,
+                    'routes' => MapScreenMode.myRoutes,
+                    _ => MapScreenMode.calculator,
+                  };
                   return MapActivityScreen(
                     initialMode: mode,
                     initialDateIso: state.uri.queryParameters['date'],
