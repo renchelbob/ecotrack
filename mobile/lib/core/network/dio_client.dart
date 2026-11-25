@@ -4,6 +4,7 @@ import 'package:ecotrack_mobile/core/error/result.dart';
 import 'package:ecotrack_mobile/core/network/auth_header_interceptor.dart';
 import 'package:ecotrack_mobile/core/network/error_catalog_mapper_interceptor.dart';
 import 'package:ecotrack_mobile/core/network/idempotency_key_interceptor.dart';
+import 'package:ecotrack_mobile/core/network/local_preview_interceptor.dart';
 import 'package:ecotrack_mobile/core/network/token_refresh_interceptor.dart';
 import 'package:ecotrack_mobile/core/network/token_store.dart';
 
@@ -56,6 +57,7 @@ final class DioClient({
     );
 
     _dio.interceptors.addAll([
+      if (dio == null) LocalPreviewInterceptor(tokenStore),
       AuthHeaderInterceptor(tokenStore),
       const IdempotencyKeyInterceptor(),
       TokenRefreshInterceptor(

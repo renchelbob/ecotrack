@@ -59,14 +59,6 @@ final class _OnboardingScreenState() extends State<OnboardingScreen> {
     super.dispose();
   }
 
-  void _jumpToStep3() {
-    _pageController.animateToPage(
-      2,
-      duration: const Duration(milliseconds: 260),
-      curve: Curves.easeOut,
-    );
-  }
-
   void _nextPage() {
     if (_currentPage < 2) {
       _pageController.nextPage(
@@ -96,6 +88,21 @@ final class _OnboardingScreenState() extends State<OnboardingScreen> {
     setState(() => _gpsTrackingConsent = enabled);
   }
 
+  void _startLocalSession() {
+    if (!_fz152ConsentAccepted) {
+      return;
+    }
+    context.read<AuthBloc>().add(
+      AuthLocalDemoRequested(
+        ConsentScopeObject(
+          personalData152fz: _fz152ConsentAccepted,
+          healthStepsSensor: true,
+          backgroundGeolocation: _gpsTrackingConsent,
+        ),
+      ),
+    );
+  }
+
   void _signInWithProvider(AuthProviderType provider) {
     if (!_fz152ConsentAccepted) {
       return;
@@ -112,6 +119,27 @@ final class _OnboardingScreenState() extends State<OnboardingScreen> {
     );
   }
 
+  void _openOAuthSheet() {
+    final authBloc = context.read<AuthBloc>();
+    showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: EcoColors.surfacePrimary,
+      shape: const RoundedRectangleBorder(
+        borderRadius: .vertical(top: .circular(24)),
+      ),
+      builder: (sheetCtx) => BlocProvider<AuthBloc>.value(
+        value: authBloc,
+        child: _OAuthProvidersSheet(
+          consentAccepted: _fz152ConsentAccepted,
+          onSelectProvider: (provider) {
+            Navigator.of(sheetCtx).pop();
+            _signInWithProvider(provider);
+          },
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) => BlocListener<AuthBloc, AuthState>(
     listener: (context, state) {
@@ -121,36 +149,573 @@ final class _OnboardingScreenState() extends State<OnboardingScreen> {
     },
     child: Scaffold(
       backgroundColor: EcoColors.surfacePrimary,
-      body: SafeArea(
-        child: Column(
+      body: PageView(
+        controller: _pageController,
+        onPageChanged: (idx) => setState(() => _currentPage = idx),
+        children: [
+          _OnboardingStepOne(
+            mascotBuilder: widget.mascotBuilder,
+            onNext: _nextPage,
+          ),
+          _OnboardingStepTwo(
+            mascotBuilder: widget.mascotBuilder,
+            stepsGranted: _stepsPermissionGranted,
+            gpsEnabled: _gpsTrackingConsent,
+            onRequestSteps: () => unawaited(_requestStepAccess()),
+            onGpsChanged: (val) => unawaited(_toggleGps(val)),
+            onNext: _nextPage,
+          ),
+          _OnboardingStepThree(
+            mascotBuilder: widget.mascotBuilder,
+            consentAccepted: _fz152ConsentAccepted,
+            onConsentChanged: (val) =>
+                setState(() => _fz152ConsentAccepted = val),
+            onReadPolicy: () => unawaited(Fz152PolicySheet.show(context)),
+            onStartLocal: _startLocalSession,
+            onOpenOAuth: _openOAuthSheet,
+          ),
+        ],
+      ),
+    ),
+  );
+}
+
+final class const _MascotArt({
+  required final MascotWidgetBuilder? mascotBuilder,
+  required final String moodWire,
+  required final double size,
+}) extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    final child = mascotBuilder?.call(moodWire);
+    if (child != null) {
+      return SizedBox(
+        width: size,
+        height: size,
+        child: FittedBox(child: child),
+      );
+    }
+    return Icon(
+      LucideIcons.sparkles,
+      size: size * 0.45,
+      color: EcoColors.inkPrimary,
+    );
+  }
+}
+
+final class const _OnboardingStepOne({
+  required final MascotWidgetBuilder? mascotBuilder,
+  required final VoidCallback onNext,
+}) extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) => ColoredBox(
+    color: EcoColors.surfacePrimary,
+    child: Stack(
+      children: [
+        const Positioned(
+          top: 90,
+          right: -110,
+          width: 340,
+          height: 360,
+          child: IgnorePointer(
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                shape: .circle,
+                gradient: RadialGradient(
+                  colors: [
+                    Color(0xFFB3B3B3),
+                    Color(0x66CCCCCC),
+                    Color(0x00FFFFFF),
+                  ],
+                  stops: [0.0, 0.55, 1.0],
+                ),
+              ),
+            ),
+          ),
+        ),
+        SafeArea(
+          child: Padding(
+            padding: const .fromLTRB(28, 28, 28, 24),
+            child: Column(
+              crossAxisAlignment: .stretch,
+              children: [
+                Text(
+                  'EcoTrack',
+                  style: EcoTypography.displayHero.copyWith(
+                    fontSize: 44,
+                    fontWeight: .w400,
+                    letterSpacing: -0.8,
+                  ),
+                ),
+                const Spacer(flex: 2),
+                Align(
+                  alignment: const Alignment(-0.22, 0),
+                  child: _MascotArt(
+                    mascotBuilder: mascotBuilder,
+                    moodWire: 'neutral',
+                    size: 230,
+                  ),
+                ),
+                const Spacer(flex: 2),
+                const _FeaturePhraseList(),
+                const SizedBox(height: 24),
+                const _OnboardingDots(activeIndex: 0),
+                const SizedBox(height: 22),
+                _WireframeActionButton(
+                  label: 'Продолжить',
+                  enabled: true,
+                  isLoading: false,
+                  onPressed: onNext,
+                ),
+              ],
+            ),
+          ),
+        ),
+      ],
+    ),
+  );
+}
+
+final class const _FeaturePhraseList() extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) => const Column(
+    mainAxisSize: .min,
+    children: [
+      Text(
+        'сокращай углеродный след',
+        textAlign: .center,
+        style: TextStyle(
+          fontFamily: 'Inter',
+          fontSize: 16.5,
+          fontWeight: .w400,
+          color: EcoColors.inkPrimary,
+        ),
+      ),
+      SizedBox(height: 8),
+      Icon(LucideIcons.leaf, size: 22, color: Color(0xFFC0C0C0)),
+      SizedBox(height: 8),
+      Text(
+        'поддерживай эко-привычки',
+        textAlign: .center,
+        style: TextStyle(
+          fontFamily: 'Inter',
+          fontSize: 16.5,
+          fontWeight: .w400,
+          color: EcoColors.inkPrimary,
+        ),
+      ),
+      SizedBox(height: 8),
+      Icon(LucideIcons.leaf, size: 22, color: Color(0xFFC0C0C0)),
+      SizedBox(height: 8),
+      Text(
+        'получай бонусы и скидки',
+        textAlign: .center,
+        style: TextStyle(
+          fontFamily: 'Inter',
+          fontSize: 16.5,
+          fontWeight: .w400,
+          color: EcoColors.inkPrimary,
+        ),
+      ),
+    ],
+  );
+}
+
+final class const _OnboardingStepTwo({
+  required final MascotWidgetBuilder? mascotBuilder,
+  required final bool stepsGranted,
+  required final bool gpsEnabled,
+  required final VoidCallback onRequestSteps,
+  required final ValueChanged<bool> onGpsChanged,
+  required final VoidCallback onNext,
+}) extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) => ColoredBox(
+    color: const Color(0xFFC5C5C5),
+    child: Stack(
+      children: [
+        Positioned(
+          top: 28,
+          left: -18,
+          child: IgnorePointer(
+            child: _MascotArt(
+              mascotBuilder: mascotBuilder,
+              moodWire: 'neutral',
+              size: 256,
+            ),
+          ),
+        ),
+        Column(
           children: [
-            _TopProgressHeader(currentPage: _currentPage, onSkip: _jumpToStep3),
+            const SizedBox(height: 220),
             Expanded(
-              child: PageView(
-                controller: _pageController,
-                onPageChanged: (idx) => setState(() => _currentPage = idx),
-                children: [
-                  _OnboardingStepOne(
-                    mascotBuilder: widget.mascotBuilder,
-                    onNext: _nextPage,
+              child: DecoratedBox(
+                decoration: const BoxDecoration(
+                  color: EcoColors.surfacePrimary,
+                  borderRadius: .only(topLeft: .circular(72)),
+                ),
+                child: SafeArea(
+                  top: false,
+                  child: Padding(
+                    padding: const .only(top: 28, bottom: 24),
+                    child: Column(
+                      crossAxisAlignment: .stretch,
+                      children: [
+                        Padding(
+                          padding: const .symmetric(horizontal: 24),
+                          child: Text(
+                            'Отслеживайте экономию\nCO₂ каждый день',
+                            textAlign: .right,
+                            style: EcoTypography.displayHero.copyWith(
+                              fontSize: 28,
+                              fontWeight: .w400,
+                              height: 1.18,
+                            ),
+                          ),
+                        ),
+                        const Spacer(),
+                        _EdgeAttachedPill(
+                          alignRight: true,
+                          horizontalMargin: 36,
+                          text: 'Чтобы фиксировать ваш вклад и переводить шаги в сэкономленный CO₂, свяжи приложение с шагомером или фитнес-браслетом',
+                          statusText: stepsGranted
+                              ? 'Доступ к шагомеру разрешён'
+                              : null,
+                          onTap: onRequestSteps,
+                        ),
+                        const SizedBox(height: 22),
+                        _EdgeAttachedPill(
+                          alignRight: false,
+                          horizontalMargin: 44,
+                          text: 'Вноси свои поездки, а алгоритм посчитает, сколько выбросов CO₂ удалось избежать',
+                          statusText: gpsEnabled
+                              ? 'GPS-трек маршрута включён'
+                              : null,
+                          onTap: () => onGpsChanged(!gpsEnabled),
+                        ),
+                        const Spacer(),
+                        const _OnboardingDots(activeIndex: 1),
+                        const SizedBox(height: 22),
+                        Padding(
+                          padding: const .symmetric(horizontal: 28),
+                          child: _WireframeActionButton(
+                            label: 'Продолжить',
+                            enabled: true,
+                            isLoading: false,
+                            onPressed: onNext,
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
-                  _OnboardingStepTwo(
-                    stepsGranted: _stepsPermissionGranted,
-                    gpsEnabled: _gpsTrackingConsent,
-                    onRequestSteps: () => unawaited(_requestStepAccess()),
-                    onGpsChanged: (val) => unawaited(_toggleGps(val)),
-                    onNext: _nextPage,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ],
+    ),
+  );
+}
+
+final class const _OnboardingStepThree({
+  required final MascotWidgetBuilder? mascotBuilder,
+  required final bool consentAccepted,
+  required final ValueChanged<bool> onConsentChanged,
+  required final VoidCallback onReadPolicy,
+  required final VoidCallback onStartLocal,
+  required final VoidCallback onOpenOAuth,
+}) extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) => BlocBuilder<AuthBloc, AuthState>(
+    builder: (context, authState) {
+      final bool isLoading = authState is AuthAuthenticating;
+
+      return ColoredBox(
+        color: EcoColors.surfacePrimary,
+        child: Stack(
+          children: [
+            const Positioned.fill(
+              child: CustomPaint(painter: _StepThreeWavePainter()),
+            ),
+            SafeArea(
+              child: LayoutBuilder(
+                builder: (context, constraints) => SingleChildScrollView(
+                  child: ConstrainedBox(
+                    constraints: BoxConstraints(
+                      minHeight: constraints.maxHeight,
+                    ),
+                    child: IntrinsicHeight(
+                      child: Padding(
+                        padding: const .only(top: 16, bottom: 16),
+                        child: Column(
+                          crossAxisAlignment: .stretch,
+                          children: [
+                            Padding(
+                              padding: const .symmetric(horizontal: 22),
+                              child: Text(
+                                'Забота о природе приносит\nпользу и подарки',
+                                style: EcoTypography.displayHero.copyWith(
+                                  fontSize: 28,
+                                  fontWeight: .w400,
+                                  height: 1.18,
+                                ),
+                              ),
+                            ),
+                            const SizedBox(height: 22),
+                            const _EdgeAttachedPill(
+                              alignRight: false,
+                              horizontalMargin: 36,
+                              text: 'Виртуальный зверек растет и развивается вместе с вашими успехами',
+                            ),
+                            const SizedBox(height: 18),
+                            const _EdgeAttachedPill(
+                              alignRight: true,
+                              horizontalMargin: 48,
+                              text: 'Обменивайте накопленные баллы на скидки и промокоды от наших партнёров',
+                            ),
+                            const SizedBox(height: 14),
+                            Align(
+                              alignment: .centerLeft,
+                              child: Padding(
+                                padding: const .only(left: 18),
+                                child: _StepThreeMascotCircle(
+                                  mascotBuilder: mascotBuilder,
+                                ),
+                              ),
+                            ),
+                            const Spacer(),
+                            const SizedBox(height: 14),
+                            Padding(
+                              padding: const .symmetric(horizontal: 28),
+                              child: _ConsentBox(
+                                accepted: consentAccepted,
+                                onChanged: onConsentChanged,
+                                onReadPolicy: onReadPolicy,
+                              ),
+                            ),
+                            const SizedBox(height: 18),
+                            const _OnboardingDots(
+                              activeIndex: 2,
+                              onDarkCard: true,
+                            ),
+                            const SizedBox(height: 16),
+                            Padding(
+                              padding: const .symmetric(horizontal: 28),
+                              child: _WireframeActionButton(
+                                label: 'Начать',
+                                enabled: consentAccepted && !isLoading,
+                                isLoading: isLoading,
+                                onPressed: onStartLocal,
+                              ),
+                            ),
+                            const SizedBox(height: 6),
+                            Center(
+                              child: TextButton(
+                                onPressed: isLoading ? null : onOpenOAuth,
+                                child: Text(
+                                  'Другие способы входа (OAuth)',
+                                  style: EcoTypography.labelSmall.copyWith(
+                                    color: EcoColors.inkSecondary,
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
                   ),
-                  _OnboardingStepThree(
-                    mascotBuilder: widget.mascotBuilder,
-                    consentAccepted: _fz152ConsentAccepted,
-                    onConsentChanged: (val) =>
-                        setState(() => _fz152ConsentAccepted = val),
-                    onReadPolicy: () =>
-                        unawaited(Fz152PolicySheet.show(context)),
-                    onSelectProvider: _signInWithProvider,
+                ),
+              ),
+            ),
+          ],
+        ),
+      );
+    },
+  );
+}
+
+final class const _StepThreeWavePainter() extends CustomPainter {
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()..color = const Color(0xFFCCCCCC);
+    final path = Path()
+      ..moveTo(0, size.height * 0.67)
+      ..lineTo(size.width * 0.65, size.height * 0.67)
+      ..quadraticBezierTo(
+        size.width * 0.96,
+        size.height * 0.67,
+        size.width,
+        size.height * 0.48,
+      )
+      ..lineTo(size.width, size.height)
+      ..lineTo(0, size.height)
+      ..close();
+    canvas.drawPath(path, paint);
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
+}
+
+final class const _StepThreeMascotCircle({
+  required final MascotWidgetBuilder? mascotBuilder,
+}) extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) => SizedBox(
+    width: 186,
+    height: 186,
+    child: DecoratedBox(
+      decoration: const BoxDecoration(color: Color(0xFFE0E0E0), shape: .circle),
+      child: Stack(
+        alignment: .center,
+        children: [
+          Positioned(
+            left: 10,
+            bottom: 8,
+            child: _MascotArt(
+              mascotBuilder: mascotBuilder,
+              moodWire: 'neutral',
+              size: 152,
+            ),
+          ),
+          const Positioned(
+            right: 20,
+            bottom: 24,
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                color: EcoColors.surfacePrimary,
+                borderRadius: .all(.circular(8)),
+                border: .fromBorderSide(
+                  BorderSide(color: EcoColors.inkPrimary, width: 1.2),
+                ),
+              ),
+              child: Padding(
+                padding: .all(5),
+                child: Icon(
+                  LucideIcons.gift,
+                  size: 20,
+                  color: EcoColors.inkPrimary,
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    ),
+  );
+}
+
+final class const _EdgeAttachedPill({
+  required final bool alignRight,
+  required final double horizontalMargin,
+  required final String text,
+  final String? statusText,
+  final VoidCallback? onTap,
+}) extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    final radius = alignRight
+        ? const BorderRadius.horizontal(left: .circular(48))
+        : const BorderRadius.horizontal(right: .circular(48));
+
+    return Padding(
+      padding: alignRight
+          ? .only(left: horizontalMargin)
+          : .only(right: horizontalMargin),
+      child: Material(
+        color: const Color(0xFFD9D9D9),
+        borderRadius: radius,
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: radius,
+          child: Padding(
+            padding: const .symmetric(horizontal: 24, vertical: 18),
+            child: Column(
+              mainAxisSize: .min,
+              children: [
+                Text(
+                  text,
+                  textAlign: .center,
+                  style: const TextStyle(
+                    fontFamily: 'Inter',
+                    fontSize: 15,
+                    fontWeight: .w400,
+                    height: 1.35,
+                    color: EcoColors.inkPrimary,
+                  ),
+                ),
+                if (statusText case final String status) ...[
+                  const SizedBox(height: 6),
+                  Row(
+                    mainAxisSize: .min,
+                    children: [
+                      const Icon(
+                        LucideIcons.check,
+                        size: 15,
+                        color: EcoColors.inkPrimary,
+                      ),
+                      const SizedBox(width: 4),
+                      Text(
+                        status,
+                        style: EcoTypography.labelSmall.copyWith(
+                          color: EcoColors.inkPrimary,
+                          fontWeight: .w600,
+                        ),
+                      ),
+                    ],
                   ),
                 ],
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+final class const _ConsentBox({
+  required final bool accepted,
+  required final ValueChanged<bool> onChanged,
+  required final VoidCallback onReadPolicy,
+}) extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) => DecoratedBox(
+    decoration: const BoxDecoration(
+      color: EcoColors.surfacePrimary,
+      borderRadius: .all(.circular(12)),
+      border: .fromBorderSide(
+        BorderSide(color: EcoColors.inkPrimary, width: 1.5),
+      ),
+    ),
+    child: InkWell(
+      onTap: () => onChanged(!accepted),
+      borderRadius: const .all(.circular(12)),
+      child: Padding(
+        padding: const .symmetric(horizontal: 8, vertical: 4),
+        child: Row(
+          children: [
+            Checkbox(value: accepted, onChanged: (v) => onChanged(v ?? false)),
+            const Expanded(
+              child: Text(
+                'Я согласен на обработку персональных данных',
+                style: TextStyle(
+                  fontFamily: 'Inter',
+                  fontSize: 13.5,
+                  fontWeight: .w400,
+                  color: EcoColors.inkPrimary,
+                ),
+              ),
+            ),
+            IconButton(
+              tooltip: 'Политика 152-ФЗ',
+              onPressed: onReadPolicy,
+              icon: const Icon(
+                LucideIcons.info,
+                size: 18,
+                color: EcoColors.inkSecondary,
               ),
             ),
           ],
@@ -160,381 +725,188 @@ final class _OnboardingScreenState() extends State<OnboardingScreen> {
   );
 }
 
-final class const _TopProgressHeader({
-  required final int currentPage,
-  required final VoidCallback onSkip,
+final class const _OnboardingDots({
+  required final int activeIndex,
+  final bool onDarkCard = false,
 }) extends StatelessWidget {
   @override
-  Widget build(BuildContext context) => Padding(
-    padding: const .fromLTRB(20, 10, 12, 4),
-    child: Row(
-      children: [
-        Row(
-          children: List.generate(
-            3,
-            (idx) => Container(
-              margin: const .only(right: 6),
-              width: idx == currentPage ? 24 : 8,
-              height: 8,
-              decoration: BoxDecoration(
-                color: idx == currentPage
-                    ? EcoColors.inkPrimary
-                    : EcoColors.surfaceCard,
-                borderRadius: const .all(.circular(4)),
-              ),
-            ),
-          ),
+  Widget build(BuildContext context) => Row(
+    mainAxisAlignment: .center,
+    children: List.generate(3, (idx) {
+      final active = idx == activeIndex;
+      final Color color;
+      if (onDarkCard) {
+        color = active ? const Color(0xFFECECEC) : const Color(0xFFDCDCDC);
+      } else {
+        color = active ? const Color(0xFFCFCFCF) : const Color(0xFFE0E0E0);
+      }
+      return Container(
+        margin: const .symmetric(horizontal: 5),
+        width: active ? 24 : 8,
+        height: 8,
+        decoration: BoxDecoration(
+          color: color,
+          borderRadius: const .all(.circular(4)),
         ),
-        const Spacer(),
-        if (currentPage < 2)
-          TextButton(onPressed: onSkip, child: const Text('Пропустить'))
-        else
-          const SizedBox(height: 48),
-      ],
-    ),
-  );
-}
-
-final class const _OnboardingStepOne({
-  required final MascotWidgetBuilder? mascotBuilder,
-  required final VoidCallback onNext,
-}) extends StatelessWidget {
-  @override
-  Widget build(BuildContext context) => ListView(
-    padding: const .fromLTRB(20, 12, 20, 24),
-    children: [
-      const Text(
-        'Шагайте по городу — копите эко-вклад',
-        style: EcoTypography.displayHero,
-      ),
-      const SizedBox(height: 16),
-      const _WireframePillBanner(
-        text: 'EcoTrack считает ваши шаги с датчиков смартфона и переводит маршруты в граммы CO₂',
-        alignLeft: true,
-      ),
-      const SizedBox(height: 12),
-      const _WireframePillBanner(
-        text: 'Накапливайте эко-баллы ★ за каждую прогулку без автомобиля',
-        alignLeft: false,
-      ),
-      const SizedBox(height: 24),
-      Center(
-        child: _MascotCircleFrame(
-          mascotBuilder: mascotBuilder,
-          moodWire: 'happy',
-          badgeText: 'День 1',
-        ),
-      ),
-      const SizedBox(height: 28),
-      SizedBox(
-        height: 56,
-        child: ElevatedButton(
-          onPressed: onNext,
-          child: const Row(
-            mainAxisAlignment: .center,
-            children: [
-              Text('Далее'),
-              SizedBox(width: 8),
-              Icon(LucideIcons.chevronRight, size: 20),
-            ],
-          ),
-        ),
-      ),
-    ],
-  );
-}
-
-final class const _OnboardingStepTwo({
-  required final bool stepsGranted,
-  required final bool gpsEnabled,
-  required final VoidCallback onRequestSteps,
-  required final ValueChanged<bool> onGpsChanged,
-  required final VoidCallback onNext,
-}) extends StatelessWidget {
-  @override
-  Widget build(BuildContext context) => ListView(
-    padding: const .fromLTRB(20, 12, 20, 24),
-    children: [
-      const Text(
-        'Точный учёт без ручного ввода',
-        style: EcoTypography.displayHero,
-      ),
-      const SizedBox(height: 12),
-      const Text(
-        'Шаги считываются автоматически через системные датчики здоровья. Если включить запись GPS-маршрута, вы сможете отмечать, вместо какого транспорта прошли пешком, получая 100% коэффициент точности.',
-        style: EcoTypography.bodyMedium,
-      ),
-      const SizedBox(height: 20),
-      DecoratedBox(
-        decoration: const BoxDecoration(
-          color: EcoColors.surfaceCard,
-          borderRadius: .all(.circular(20)),
-          border: .fromBorderSide(
-            BorderSide(color: EcoColors.borderMuted, width: 1.5),
-          ),
-        ),
-        child: Padding(
-          padding: const .all(16),
-          child: Column(
-            crossAxisAlignment: .stretch,
-            children: [
-              const Row(
-                children: [
-                  Icon(
-                    LucideIcons.footprints,
-                    size: 20,
-                    color: EcoColors.inkPrimary,
-                  ),
-                  SizedBox(width: 10),
-                  Expanded(
-                    child: Text(
-                      'Доступ к датчику шагов (обязательно для начисления ★)',
-                      style: EcoTypography.bodyLarge,
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 12),
-              OutlinedButton.icon(
-                onPressed: onRequestSteps,
-                icon: Icon(
-                  stepsGranted ? LucideIcons.check : LucideIcons.shieldCheck,
-                  size: 18,
-                ),
-                label: Text(
-                  stepsGranted ? 'Доступ разрешён' : 'Запросить доступ',
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-      const SizedBox(height: 14),
-      DecoratedBox(
-        decoration: const BoxDecoration(
-          color: EcoColors.surfaceSubtle,
-          borderRadius: .all(.circular(20)),
-          border: .fromBorderSide(
-            BorderSide(color: EcoColors.borderMuted, width: 1.5),
-          ),
-        ),
-        child: Padding(
-          padding: const .all(16),
-          child: Column(
-            crossAxisAlignment: .stretch,
-            children: [
-              Row(
-                children: [
-                  const Icon(
-                    LucideIcons.mapPin,
-                    size: 20,
-                    color: EcoColors.inkPrimary,
-                  ),
-                  const SizedBox(width: 10),
-                  const Expanded(
-                    child: Text(
-                      'Фоновая запись маршрута GPS (опционально)',
-                      style: EcoTypography.bodyLarge,
-                    ),
-                  ),
-                  Switch(value: gpsEnabled, onChanged: onGpsChanged),
-                ],
-              ),
-              const SizedBox(height: 6),
-              const Text(
-                'Если GPS выключен, приложение автоматически считает эковклад по базовой формуле (80% × 0.7).',
-                style: EcoTypography.labelSmall,
-              ),
-            ],
-          ),
-        ),
-      ),
-      const SizedBox(height: 28),
-      SizedBox(
-        height: 56,
-        child: ElevatedButton(
-          onPressed: onNext,
-          child: const Row(
-            mainAxisAlignment: .center,
-            children: [
-              Text('Далее'),
-              SizedBox(width: 8),
-              Icon(LucideIcons.chevronRight, size: 20),
-            ],
-          ),
-        ),
-      ),
-    ],
-  );
-}
-
-final class const _OnboardingStepThree({
-  required final MascotWidgetBuilder? mascotBuilder,
-  required final bool consentAccepted,
-  required final ValueChanged<bool> onConsentChanged,
-  required final VoidCallback onReadPolicy,
-  required final ValueChanged<AuthProviderType> onSelectProvider,
-}) extends StatelessWidget {
-  @override
-  Widget build(BuildContext context) => BlocBuilder<AuthBloc, AuthState>(
-    builder: (context, authState) {
-      final AuthProviderType? loadingProvider = switch (authState) {
-        AuthAuthenticating(:final activeProvider) => activeProvider,
-        _ => null,
-      };
-      final bool anyLoading = authState is AuthAuthenticating;
-
-      return ListView(
-        padding: const .fromLTRB(20, 8, 20, 24),
-        children: [
-          const Text(
-            'Забота о природе приносит пользу и подарки',
-            style: EcoTypography.displayHero,
-          ),
-          const SizedBox(height: 14),
-          const _WireframePillBanner(
-            text: 'Виртуальный зверёк растёт и развивается вместе с вашими успехами',
-            alignLeft: true,
-          ),
-          const SizedBox(height: 10),
-          const _WireframePillBanner(
-            text: 'Обменивайте накопленные баллы на скидки и промокоды от наших партнёров',
-            alignLeft: false,
-          ),
-          const SizedBox(height: 16),
-          Center(
-            child: _MascotCircleFrame(
-              mascotBuilder: mascotBuilder,
-              moodWire: 'thriving',
-              badgeText: '+100 ★ за старт',
-            ),
-          ),
-          const SizedBox(height: 18),
-          DecoratedBox(
-            decoration: const BoxDecoration(
-              color: EcoColors.surfacePrimary,
-              borderRadius: .all(.circular(16)),
-              border: .fromBorderSide(
-                BorderSide(color: EcoColors.inkPrimary, width: 1.5),
-              ),
-            ),
-            child: InkWell(
-              onTap: () => onConsentChanged(!consentAccepted),
-              borderRadius: const .all(.circular(16)),
-              child: Padding(
-                padding: const .symmetric(horizontal: 10, vertical: 10),
-                child: Row(
-                  crossAxisAlignment: .start,
-                  children: [
-                    SizedBox(
-                      width: 48,
-                      height: 48,
-                      child: Checkbox(
-                        value: consentAccepted,
-                        onChanged: (v) => onConsentChanged(v ?? false),
-                      ),
-                    ),
-                    const Expanded(
-                      child: Padding(
-                        padding: .only(top: 6),
-                        child: Text(
-                          'Я принимаю Политику конфиденциальности и даю согласие на обработку персональных данных (включая показатели активности и геопозицию) согласно 152-ФЗ РФ.',
-                          style: EcoTypography.bodyMedium,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ),
-          Align(
-            alignment: .centerLeft,
-            child: TextButton(
-              onPressed: onReadPolicy,
-              child: const Text('Читать полный текст согласия 152-ФЗ'),
-            ),
-          ),
-          const SizedBox(height: 8),
-          _OAuthProviderButton(
-            label: 'Войти через Яндекс ID',
-            enabled: consentAccepted && !anyLoading,
-            isLoading: loadingProvider == .yandex,
-            variant: _OAuthButtonVariant.yandex,
-            onPressed: () => onSelectProvider(.yandex),
-          ),
-          const SizedBox(height: 10),
-          _OAuthProviderButton(
-            label: 'Войти через VK ID',
-            enabled: consentAccepted && !anyLoading,
-            isLoading: loadingProvider == .vk,
-            variant: _OAuthButtonVariant.vk,
-            onPressed: () => onSelectProvider(.vk),
-          ),
-          const SizedBox(height: 10),
-          _OAuthProviderButton(
-            label: 'Войти через Google (Лаб. режим)',
-            enabled: consentAccepted && !anyLoading,
-            isLoading: loadingProvider == .google,
-            variant: _OAuthButtonVariant.google,
-            onPressed: () => onSelectProvider(.google),
-          ),
-        ],
       );
-    },
+    }),
   );
 }
 
-enum _OAuthButtonVariant() {
-  yandex,
-  vk,
-  google,
-}
-
-final class const _OAuthProviderButton({
+final class const _WireframeActionButton({
   required final String label,
   required final bool enabled,
   required final bool isLoading,
-  required final _OAuthButtonVariant variant,
   required final VoidCallback onPressed,
 }) extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
-    final Color bgColor;
-    final Color fgColor;
-    final BorderSide side;
-    if (!enabled) {
-      bgColor = EcoColors.fillDisabled;
-      fgColor = EcoColors.inkSecondary;
-      side = .none;
-    } else {
-      switch (variant) {
-        case .yandex:
-          bgColor = EcoColors.inkPrimary;
-          fgColor = EcoColors.surfacePrimary;
-          side = .none;
-        case .vk:
-          bgColor = EcoColors.surfacePrimary;
-          fgColor = EcoColors.inkPrimary;
-          side = const BorderSide(color: EcoColors.inkPrimary, width: 1.5);
-        case .google:
-          bgColor = EcoColors.surfaceSubtle;
-          fgColor = EcoColors.inkPrimary;
-          side = const BorderSide(color: EcoColors.borderMuted, width: 1.5);
-      }
-    }
+    final bgColor = enabled ? const Color(0xFFDDDDDD) : const Color(0xFFD6D6D6);
+    final fgColor = enabled ? EcoColors.inkPrimary : EcoColors.inkSecondary;
 
     return SizedBox(
-      height: 56,
+      height: 54,
       width: double.infinity,
       child: OutlinedButton(
         onPressed: enabled ? onPressed : null,
         style: OutlinedButton.styleFrom(
           backgroundColor: bgColor,
           foregroundColor: fgColor,
+          disabledBackgroundColor: bgColor,
+          disabledForegroundColor: EcoColors.inkSecondary,
+          side: .none,
+          shape: const RoundedRectangleBorder(
+            borderRadius: .all(.circular(28)),
+          ),
+        ),
+        child: isLoading
+            ? const SizedBox(
+                width: 20,
+                height: 20,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2,
+                  color: EcoColors.inkPrimary,
+                ),
+              )
+            : Row(
+                mainAxisAlignment: .center,
+                children: [
+                  Text(
+                    label,
+                    style: TextStyle(
+                      fontFamily: 'Inter',
+                      fontSize: 17,
+                      fontWeight: .w400,
+                      color: fgColor,
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Icon(LucideIcons.chevronRight, size: 20, color: fgColor),
+                ],
+              ),
+      ),
+    );
+  }
+}
+
+final class const _OAuthProvidersSheet({
+  required final bool consentAccepted,
+  required final ValueChanged<AuthProviderType> onSelectProvider,
+}) extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) => BlocBuilder<AuthBloc, AuthState>(
+    builder: (context, authState) {
+      final loadingProvider = switch (authState) {
+        AuthAuthenticating(:final activeProvider) => activeProvider,
+        _ => null,
+      };
+      final anyLoading = authState is AuthAuthenticating;
+
+      return SafeArea(
+        child: Padding(
+          padding: const .fromLTRB(20, 16, 20, 24),
+          child: Column(
+            mainAxisSize: .min,
+            crossAxisAlignment: .stretch,
+            children: [
+              const Text(
+                'Вход через OAuth PKCE',
+                style: EcoTypography.titleMedium,
+              ),
+              const SizedBox(height: 6),
+              Text(
+                consentAccepted
+                    ? 'Выберите провайдера для входа на сервер:'
+                    : 'Сначала отметьте согласие на обработку данных 152-ФЗ.',
+                style: EcoTypography.bodyMedium.copyWith(
+                  color: EcoColors.inkSecondary,
+                ),
+              ),
+              const SizedBox(height: 16),
+              _OAuthProviderButton(
+                label: 'Войти через Яндекс ID',
+                enabled: consentAccepted && !anyLoading,
+                isLoading: loadingProvider == .yandex,
+                bgColor: EcoColors.inkPrimary,
+                fgColor: EcoColors.surfacePrimary,
+                side: .none,
+                onPressed: () => onSelectProvider(.yandex),
+              ),
+              const SizedBox(height: 10),
+              _OAuthProviderButton(
+                label: 'Войти через VK ID',
+                enabled: consentAccepted && !anyLoading,
+                isLoading: loadingProvider == .vk,
+                bgColor: EcoColors.surfacePrimary,
+                fgColor: EcoColors.inkPrimary,
+                side: const BorderSide(color: EcoColors.inkPrimary, width: 1.5),
+                onPressed: () => onSelectProvider(.vk),
+              ),
+              const SizedBox(height: 10),
+              _OAuthProviderButton(
+                label: 'Войти через Google (Лаб. режим)',
+                enabled: consentAccepted && !anyLoading,
+                isLoading: loadingProvider == .google,
+                bgColor: EcoColors.surfaceSubtle,
+                fgColor: EcoColors.inkPrimary,
+                side: const BorderSide(
+                  color: EcoColors.borderMuted,
+                  width: 1.5,
+                ),
+                onPressed: () => onSelectProvider(.google),
+              ),
+            ],
+          ),
+        ),
+      );
+    },
+  );
+}
+
+final class const _OAuthProviderButton({
+  required final String label,
+  required final bool enabled,
+  required final bool isLoading,
+  required final Color bgColor,
+  required final Color fgColor,
+  required final BorderSide side,
+  required final VoidCallback onPressed,
+}) extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    final effectiveBg = enabled ? bgColor : EcoColors.fillDisabled;
+    final effectiveFg = enabled ? fgColor : EcoColors.inkSecondary;
+
+    return SizedBox(
+      height: 52,
+      child: OutlinedButton(
+        onPressed: enabled ? onPressed : null,
+        style: OutlinedButton.styleFrom(
+          backgroundColor: effectiveBg,
+          foregroundColor: effectiveFg,
           disabledBackgroundColor: EcoColors.fillDisabled,
           disabledForegroundColor: EcoColors.inkSecondary,
-          side: side,
+          side: enabled ? side : .none,
           shape: const RoundedRectangleBorder(
             borderRadius: .all(.circular(28)),
           ),
@@ -545,90 +917,14 @@ final class const _OAuthProviderButton({
                 height: 20,
                 child: CircularProgressIndicator(
                   strokeWidth: 2,
-                  color: fgColor,
+                  color: effectiveFg,
                 ),
               )
             : Text(
                 label,
-                style: EcoTypography.bodyLarge.copyWith(color: fgColor),
+                style: EcoTypography.bodyLarge.copyWith(color: effectiveFg),
               ),
       ),
     );
   }
-}
-
-final class const _WireframePillBanner({
-  required final String text,
-  required final bool alignLeft,
-}) extends StatelessWidget {
-  @override
-  Widget build(BuildContext context) => Align(
-    alignment: alignLeft ? .centerLeft : .centerRight,
-    child: FractionallySizedBox(
-      widthFactor: 0.9,
-      child: DecoratedBox(
-        decoration: const BoxDecoration(
-          color: EcoColors.surfaceCard,
-          borderRadius: .all(.circular(28)),
-        ),
-        child: Padding(
-          padding: const .symmetric(horizontal: 18, vertical: 14),
-          child: Text(
-            text,
-            textAlign: .center,
-            style: EcoTypography.bodyMedium,
-          ),
-        ),
-      ),
-    ),
-  );
-}
-
-final class const _MascotCircleFrame({
-  required final MascotWidgetBuilder? mascotBuilder,
-  required final String moodWire,
-  required final String badgeText,
-}) extends StatelessWidget {
-  @override
-  Widget build(BuildContext context) => Column(
-    mainAxisSize: .min,
-    children: [
-      DecoratedBox(
-        decoration: const BoxDecoration(
-          color: EcoColors.surfaceSubtle,
-          shape: .circle,
-          border: .fromBorderSide(
-            BorderSide(color: EcoColors.borderMuted, width: 1.5),
-          ),
-        ),
-        child: SizedBox(
-          width: 176,
-          height: 176,
-          child: Center(
-            child:
-                mascotBuilder?.call(moodWire) ??
-                const Icon(
-                  LucideIcons.sparkles,
-                  size: 56,
-                  color: EcoColors.inkPrimary,
-                ),
-          ),
-        ),
-      ),
-      const SizedBox(height: 8),
-      DecoratedBox(
-        decoration: const BoxDecoration(
-          color: EcoColors.surfacePrimary,
-          borderRadius: .all(.circular(999)),
-          border: .fromBorderSide(
-            BorderSide(color: EcoColors.borderMuted, width: 1.5),
-          ),
-        ),
-        child: Padding(
-          padding: const .symmetric(horizontal: 12, vertical: 4),
-          child: Text(badgeText, style: EcoTypography.labelSmall),
-        ),
-      ),
-    ],
-  );
 }

@@ -17,6 +17,9 @@ final class const AuthOAuthRequested(
   final ConsentScopeObject consentScope,
 ) extends AuthEvent;
 
+final class const AuthLocalDemoRequested(final ConsentScopeObject consentScope)
+    extends AuthEvent;
+
 final class const AuthGooglePhoneSubmitted(final String phoneE164)
     extends AuthEvent;
 
@@ -80,6 +83,7 @@ final class AuthBloc(
     on<AuthSessionChecked>(_onSessionChecked);
     on<AuthOnboardingCompleted>(_onOnboardingCompleted);
     on<AuthOAuthRequested>(_onOAuthRequested);
+    on<AuthLocalDemoRequested>(_onLocalDemoRequested);
     on<AuthGooglePhoneSubmitted>(_onGooglePhoneSubmitted);
     on<AuthConsentSubmitted>(_onConsentSubmitted);
     on<AuthLogoutRequested>(_onLogoutRequested);
@@ -164,6 +168,22 @@ final class AuthBloc(
           isForeignLabMode: session.isForeignProviderLabMode,
           warningBanner: banner,
         );
+      case Err(:final error):
+        emit(AuthError(error));
+    }
+  }
+
+  Future<void> _onLocalDemoRequested(
+    AuthLocalDemoRequested event,
+    Emitter<AuthState> emit,
+  ) async {
+    emit(const AuthAuthenticating());
+    final result = await _authRepo.signInLocally(
+      consentScope: event.consentScope,
+    );
+    switch (result) {
+      case Ok(value: final session):
+        await _emitResolvedUser(emit, session.user, isForeignLabMode: false);
       case Err(:final error):
         emit(AuthError(error));
     }
