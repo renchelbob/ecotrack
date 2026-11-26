@@ -65,7 +65,9 @@ async def orders(
 async def create_order(
     body: CreateShopOrderRequest, key: MutationKey, principal: AuthUser, connection: Db
 ) -> ShopOrderDetail:
-    return await ledger_shop_service.checkout(connection, principal.user_id, key, body.items)
+    return await ledger_shop_service.checkout(
+        connection, principal.user_id, key, body.items, session_id=principal.session_id
+    )
 
 
 @router.post(
@@ -74,6 +76,8 @@ async def create_order(
     responses={code: {"model": ErrorResponse} for code in (400, 401, 403, 409)},
 )
 async def activate_streak_freeze(
-    _key: MutationKey, principal: AuthUser, connection: Db
+    key: MutationKey, principal: AuthUser, connection: Db
 ) -> UserProfileResponse:
-    return await ledger_shop_service.activate_freeze(connection, principal.user_id)
+    return await ledger_shop_service.activate_freeze(
+        connection, principal.user_id, key=key, session_id=principal.session_id
+    )

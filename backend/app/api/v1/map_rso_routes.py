@@ -87,7 +87,9 @@ async def report(
     principal: AuthUser,
     connection: Db,
 ) -> WastePointReportCreatedResponse:
-    return await map_rso_service.report_point(connection, principal.user_id, key, point_id, body)
+    return await map_rso_service.report_point(
+        connection, principal.user_id, key, point_id, body, session_id=principal.session_id
+    )
 
 
 @router.post(
@@ -99,4 +101,6 @@ async def report(
 async def suggest(
     body: SuggestWastePointRequest, key: MutationKey, principal: AuthUser, connection: Db
 ) -> WastePointDetailResponse:
-    return await map_rso_service.suggest_point(connection, principal.user_id, key, body)
+    return await map_rso_service.suggest_point(
+        connection, principal.user_id, key, body, session_id=principal.session_id
+    )

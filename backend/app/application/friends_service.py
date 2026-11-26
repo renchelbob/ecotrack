@@ -135,10 +135,11 @@ async def leaderboard(connection: asyncpg.Connection, user_id: UUID) -> FriendsL
 
 @retry_deadlock
 async def send_request(
-    connection: asyncpg.Connection, user_id: UUID, key: UUID, friend_code: str
+    connection: asyncpg.Connection, user_id: UUID, key: UUID, friend_code: str,
+    *, session_id: UUID | None = None,
 ) -> FriendshipRecord:
     async with connection.transaction():
-        await user_repo.lock_user(connection, user_id)
+        await user_repo.lock_user(connection, user_id, session_id=session_id)
         await require_active_account(connection, user_id)
         target = await connection.fetchval(
             """
@@ -184,7 +185,8 @@ async def send_request(
 
 @retry_deadlock
 async def reply(
-    connection: asyncpg.Connection, user_id: UUID, friendship_id: UUID, action: FriendAction
+    connection: asyncpg.Connection, user_id: UUID, friendship_id: UUID, action: FriendAction,
+    *, session_id: UUID | None = None,
 ) -> FriendshipRecord:
     async with connection.transaction():
         # The requester can receive a badge upon accepting, so take both user locks in order.
@@ -196,7 +198,7 @@ async def reply(
         if not isinstance(parties, UUID):
             raise CatalogException("FRIENDSHIP_NOT_FOUND")
         for uid in sorted((user_id, parties)):
-            await user_repo.lock_user(connection, uid)
+            await user_repo.lock_user(connection, uid, session_id=session_id if uid == user_id else None)
         await require_active_account(connection, user_id)
         row = await connection.fetchrow(
             "SELECT * FROM friendships WHERE id = $1 AND addressee_id = $2 FOR UPDATE",
@@ -235,9 +237,12 @@ async def _set_reply_status(
     return FriendshipRecord.model_validate(dict(updated))
 
 
-async def remove(connection: asyncpg.Connection, user_id: UUID, friend_id: UUID) -> None:
+async def remove(
+    connection: asyncpg.Connection, user_id: UUID, friend_id: UUID,
+    *, session_id: UUID | None = None,
+) -> None:
     async with connection.transaction():
-        await user_repo.lock_user(connection, user_id)
+        await user_repo.lock_user(connection, user_id, session_id=session_id)
         await require_active_account(connection, user_id)
         removed = await connection.fetchval(
             """
@@ -258,9 +263,11 @@ async def nudge(
     friend_id: UUID,
     key: UUID,
     provider: PushNotificationProvider,
+    *,
+    session_id: UUID | None = None,
 ) -> WakeupNudgeResponse:
     async with connection.transaction():
-        await user_repo.lock_user(connection, user_id)
+        await user_repo.lock_user(connection, user_id, session_id=session_id)
         await require_active_account(connection, user_id)
         await _require_friend(connection, user_id, friend_id)
         previous = await connection.fetchrow(

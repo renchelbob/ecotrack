@@ -29,7 +29,13 @@ backup() (
 )
 
 restore() {
-    local archive=$1 database=$2 directory basename expected actual
+    local archive=$1 database=$2 directory basename expected actual source_db
+    source_db=$(docker compose --project-directory "$root" run --rm --no-deps -T api \
+        python -c 'from urllib.parse import urlparse, unquote; from app.config import load_settings; print(unquote(urlparse(load_settings().database_url).path.lstrip("/")))')
+    if [[ -z "$source_db" || "$database" == "$source_db" ]]; then
+        printf 'Restore requires a separate, isolated target database\n' >&2
+        return 1
+    fi
     directory=$(dirname -- "$archive")
     basename=$(basename -- "$archive")
     read -r expected _ < "$directory/$basename.sha256"
@@ -42,6 +48,8 @@ restore() {
     docker compose --project-directory "$root" exec -T db \
         pg_restore --username="$postgres_user" --dbname="$database" \
         --single-transaction --exit-on-error --no-owner --no-acl < "$archive"
+    docker compose --project-directory "$root" run --rm --no-deps -T api \
+        python -m app.application.reconcile_erasure "$database"
 }
 
 prune() {

@@ -59,7 +59,8 @@ services:
       target: migrations
     restart: "no"
     env_file:
-      - .env
+      - path: .env
+        required: false
     environment: *database-environment
     volumes:
       - ./contracts:/contracts:ro
@@ -78,7 +79,8 @@ services:
     restart: unless-stopped
     cpuset: "${ECOTRACK_API_CPUSET:-}"
     env_file:
-      - .env
+      - path: .env
+        required: false
     environment: *database-environment
     ports:
       - "${API_BIND_HOST:-127.0.0.1}:${API_HOST_PORT:-8000}:8000"
@@ -123,7 +125,8 @@ services:
     profiles:
       - etl
     env_file:
-      - .env
+      - path: .env
+        required: false
     environment: *database-environment
     volumes:
       - ./data/osm:/data/osm
@@ -142,6 +145,7 @@ services:
 
 volumes:
   ecotrack_pgdata:
+    name: ${ECOTRACK_PGDATA_VOLUME:-ecotrack_pgdata}
 
 networks:
   ecotrack_internal:

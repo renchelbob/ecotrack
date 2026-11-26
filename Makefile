@@ -1,9 +1,9 @@
-.PHONY: help verify verify-contracts verify-static verify-backend verify-backend-static verify-dbc verify-pbt verify-stress db-up db-down dev-backend dev-mobile check-image-size
+.PHONY: help verify verify-contracts verify-static verify-backend verify-backend-static verify-dbc verify-pbt verify-stress db-up db-down dev-backend dev-mobile check-image-size verify-backend-pbt verify-backend-stress
 
 help:
 	@echo "EcoTrack Contract-First Monorepo Automation"
 	@echo "============================================="
-	@echo "  make verify          - Run Layer 1 contract and static checks"
+	@echo "  make verify          - Run all four required verification layers"
 	@echo "  make verify-contracts- Validate parity across 4 canonical contracts"
 	@echo "  make verify-static   - Run Ruff, Basedpyright, and Dart Analyze"
 	@echo "  make verify-backend  - Run backend checks against TEST_DATABASE_URL"
@@ -15,12 +15,16 @@ help:
 	@echo "  make dev-backend     - Run FastAPI backend locally with hot reload"
 	@echo "  make dev-mobile      - Launch Flutter client on connected device"
 
-verify: verify-contracts verify-static
+verify:
+	$(MAKE) verify-static
+	$(MAKE) verify-dbc
+	$(MAKE) verify-pbt
+	$(MAKE) verify-stress
 
 verify-contracts:
 	uv run --with pyyaml python scripts/verify_contracts.py
 
-verify-static: verify-backend-static
+verify-static: verify-contracts verify-backend-static
 	@echo "==> Running Mobile Linters..."
 	uv run --with pyyaml python scripts/verify_mobile_gates.py
 	cd mobile && dart format --output=none --set-exit-if-changed lib test
@@ -33,23 +37,31 @@ verify-backend-static:
 	uv run --locked --directory backend ruff check app tests
 	uv run --locked --directory backend ruff format --check app tests
 	uv run --locked --directory backend basedpyright --level error
+	uvx semgrep --config auto --config backend/.semgrep.yml --error backend/app
 
-verify-backend: verify-contracts verify-backend-static verify-dbc
-	uv run --locked --directory backend python -c "import os; os.environ['TEST_DATABASE_URL']"
-	uv run --locked --directory backend python -m pytest
+verify-backend:
+	$(MAKE) verify-contracts
+	$(MAKE) verify-backend-static
+	$(MAKE) verify-dbc
+	$(MAKE) verify-backend-pbt
+	$(MAKE) verify-backend-stress
 
 verify-dbc:
-	@echo "==> Running Symbolic SMT Verification (CrossHair / Z3)..."
-	uv run --directory backend crosshair check --per_condition_timeout=10 app/domain/
+	uv run --locked --directory backend crosshair check --per_condition_timeout=10 app/domain/
+	uv run --locked --directory backend pytest --fail-on-skip tests/contract/ tests/dbc/
 
-verify-pbt:
-	@echo "==> Running Property-Based Testing..."
-	uv run --directory backend pytest tests/pbt/
+verify-backend-pbt:
+	uv run --locked --directory backend pytest --fail-on-skip tests/pbt/
+
+verify-pbt: verify-backend-pbt
 	cd mobile && flutter test test/pbt/
 
-verify-stress:
-	@echo "==> Running Concurrency & PostGIS Performance Gates..."
-	uv run --directory backend pytest tests/stress/
+verify-backend-stress:
+	uv run --locked --directory backend pytest --fail-on-skip tests/stress/
+
+verify-stress: verify-backend-stress
+	k6 run backend/tests/stress/k6_load_gate.js
+	cd mobile && flutter test integration_test/impeller_map_mascot_benchmark_test.dart
 
 db-up:
 	docker compose up -d db
@@ -65,7 +77,4 @@ dev-mobile:
 
 check-image-size:
 	docker build --target runtime -t ecotrack-api:latest ./backend
-	@echo "Checking uncompressed runtime image size budget (<= 100 MB)..."
-	@size=$$(docker run --rm ecotrack-api:latest du -sk /usr/local /app) && \
-		kib=$$(printf '%s\n' "$$size" | awk '{total += $$1} END {print total}') && \
-		echo "Python runtime and application: $$kib KiB" && test "$$kib" -le 102400
+	python scripts/check_runtime_image.py ecotrack-api:latest

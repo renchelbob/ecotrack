@@ -1,8 +1,8 @@
 import re
 
-from fastapi import APIRouter, Response
+from fastapi import APIRouter, Request, Response
 
-from app.api.dependencies import AppSettings, AuthUser, Db, MutationKey
+from app.api.dependencies import AppSettings, AuthUser, Db, MutationKey, consent_audit_context
 from app.api.errors import CatalogException, ErrorResponse
 from app.api.v1 import API_PREFIX
 from app.api.v1.auth_models import (
@@ -27,7 +27,8 @@ router = APIRouter(prefix=f"{API_PREFIX}/auth", tags=["Auth & 152-FZ"])
     responses={code: {"model": ErrorResponse} for code in (400, 401, 403, 422, 503)},
 )
 async def exchange_oauth(
-    body: OAuthExchangeRequest, _key: MutationKey, settings: AppSettings, connection: Db
+    body: OAuthExchangeRequest, _key: MutationKey, settings: AppSettings, connection: Db,
+    request: Request,
 ) -> AuthSessionResponse:
     if not body.consent_scope.personal_data_152fz:
         raise CatalogException("FZ152_CONSENT_REQUIRED")
@@ -45,7 +46,8 @@ async def exchange_oauth(
         raise CatalogException("OAUTH_PKCE_VERIFICATION_FAILED")
     signing_key(settings)
     identity = await exchange(settings, body.authorization_code, body.code_verifier)
-    return await sign_in(connection, settings, body, identity)
+    peer, agent = consent_audit_context(request)
+    return await sign_in(connection, settings, body, identity, peer=peer, user_agent=agent)
 
 
 @router.post(
@@ -58,7 +60,7 @@ async def google_phone(
 ) -> UserProfileResponse:
     user_id = principal.user_id
     async with connection.transaction():
-        await lock_user(connection, user_id)
+        await lock_user(connection, user_id, session_id=principal.session_id)
         await connection.execute(
             """
             UPDATE users
@@ -75,9 +77,10 @@ async def google_phone(
     "/refresh", operation_id="refreshAccessToken", responses={401: {"model": ErrorResponse}}
 )
 async def refresh(
-    body: TokenRefreshRequest, settings: AppSettings, connection: Db
+    body: TokenRefreshRequest, settings: AppSettings, connection: Db, request: Request
 ) -> AuthSessionResponse:
-    return await refresh_session(connection, settings, body)
+    peer, agent = consent_audit_context(request)
+    return await refresh_session(connection, settings, body, peer=peer, user_agent=agent)
 
 
 @router.post(

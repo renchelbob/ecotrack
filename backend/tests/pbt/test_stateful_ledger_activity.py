@@ -6,13 +6,20 @@ from uuid import UUID, uuid4, uuid7
 import asyncpg
 import pytest
 from hypothesis import settings, strategies as st
-from hypothesis.stateful import RuleBasedStateMachine, invariant, rule
+from hypothesis.stateful import RuleBasedStateMachine, invariant, precondition, rule
 
 from app.api.errors import CatalogException
 from app.api.v1.activity_models import SyncDailyStepsRequest
 from app.api.v1.ledger_shop_models import CartLineInput
+from app.api.v1.route_models import (
+    GpsTrackPointInput,
+    GpsTrackPointsBatchRequest,
+    RouteSegmentAllocationInput,
+)
 from app.application.activity_service import sync_steps
 from app.application.ledger_shop_service import checkout
+from app.application.route_service import ingest_track, read_activity, remove_allocation
+from app.application.route_service import save_allocations
 from app.infrastructure.db.pool import configure_connection
 
 pytestmark = pytest.mark.skipif("TEST_DATABASE_URL" not in os.environ, reason="requires PostGIS")
@@ -23,7 +30,9 @@ class LedgerActivityMachine(RuleBasedStateMachine):
     def __init__(self) -> None:
         super().__init__()
         self.user = uuid7()
-        self.today = datetime.now(UTC).date()
+        self.now = datetime.now(UTC)
+        self.today = self.now.date()
+        self.point_count = 0
         self.max_steps: dict[int, int] = {}
         self.runner = asyncio.Runner()
         self.runner.run(self._setup())
@@ -48,7 +57,7 @@ class LedgerActivityMachine(RuleBasedStateMachine):
             {
                 "personal_data_152fz": True,
                 "health_steps_sensor": True,
-                "background_geolocation": False,
+                "background_geolocation": True,
             },
         )
 
@@ -70,6 +79,54 @@ class LedgerActivityMachine(RuleBasedStateMachine):
             assert second.points_balance == first.points_balance
 
         self.runner.run(submit_twice())
+
+    @rule(size=st.integers(2, 4))
+    def append_gps_batch(self, size: int) -> None:
+        async def upload() -> None:
+            body = GpsTrackPointsBatchRequest(
+                activity_date=self.today,
+                points=[
+                    GpsTrackPointInput(
+                        seq_no=index,
+                        recorded_at=self.now + timedelta(seconds=10 * index),
+                        lat=55.75 + index * 0.0001,
+                        lon=37.6,
+                        accuracy_m=5.0,
+                        speed_mps=1.0,
+                        cumulative_steps=index * 10,
+                    )
+                    for index in range(self.point_count, self.point_count + size)
+                ],
+            )
+            first = await ingest_track(self.connection, self.user, body)
+            second = await ingest_track(self.connection, self.user, body)
+            self.point_count += size
+            assert first.ingested_count == size and second.ingested_count == 0
+            assert first.total_point_count == second.total_point_count == self.point_count
+
+        self.runner.run(upload())
+
+    @precondition(lambda self: self.point_count >= 2)
+    @rule()
+    def replace_and_remove_annotation(self) -> None:
+        async def annotate() -> None:
+            segment = RouteSegmentAllocationInput(
+                idempotency_key=uuid7(),
+                start_seq_no=0,
+                end_seq_no=self.point_count - 1,
+                replaced_transport_mode="bus",
+            )
+            first = await save_allocations(self.connection, self.user, self.today, [segment])
+            repeat = await save_allocations(self.connection, self.user, self.today, [segment])
+            assert repeat.allocations == first.allocations
+            assert repeat.co2_delta_applied_grams == 0
+            allocation = first.allocations[0]
+            cleared = await remove_allocation(self.connection, self.user, self.today, allocation.id)
+            assert cleared.allocations == []
+            assert cleared.summary.allocated_co2_saved_grams == 0
+            assert cleared.summary.is_auto_calculated
+
+        self.runner.run(annotate())
 
     @rule()
     def purchase_freeze(self) -> None:
@@ -101,6 +158,13 @@ class LedgerActivityMachine(RuleBasedStateMachine):
             assert row is not None
             assert row["points_balance"] == row["ledger_balance"] >= 0
             assert row["lifetime_points_earned"] == row["ledger_earned"]
+            if self.point_count:
+                route = await read_activity(self.connection, self.user, self.today)
+                assert [point.seq_no for point in route.track_points] == list(range(self.point_count))
+                summary = route.summary
+                assert summary.total_co2_saved_grams == (
+                    summary.allocated_co2_saved_grams + summary.auto_default_co2_saved_grams
+                )
 
         self.runner.run(verify())
 
@@ -116,4 +180,4 @@ class LedgerActivityMachine(RuleBasedStateMachine):
 
 
 TestLedgerActivity = LedgerActivityMachine.TestCase
-TestLedgerActivity.settings = settings(max_examples=10, stateful_step_count=12, deadline=None)
+TestLedgerActivity.settings = settings(max_examples=75, stateful_step_count=35, deadline=None)

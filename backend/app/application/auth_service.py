@@ -3,6 +3,7 @@ import secrets
 import string
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
+from ipaddress import IPv4Address, IPv6Address
 from uuid import UUID
 
 import asyncpg
@@ -78,6 +79,9 @@ async def _issue_session(
     settings: Settings,
     user_id: UUID,
     fingerprint: str,
+    *,
+    peer: IPv4Address | IPv6Address | None = None,
+    user_agent: str | None = None,
 ) -> AuthSessionResponse:
     google = await connection.fetchval(
         "SELECT EXISTS(SELECT 1 FROM user_oauth_identities "
@@ -91,13 +95,16 @@ async def _issue_session(
     expires = now + timedelta(days=settings.jwt_refresh_token_ttl_days)
     session_id: UUID = await connection.fetchval(
         """
-        INSERT INTO auth_refresh_sessions (user_id, token_hash, device_fingerprint, expires_at)
-        VALUES ($1, $2, $3, $4) RETURNING id
+        INSERT INTO auth_refresh_sessions (
+            user_id, token_hash, device_fingerprint, expires_at, ip_address, user_agent
+        ) VALUES ($1, $2, $3, $4, $5::inet, $6) RETURNING id
         """,
         user_id,
         token_hash(refresh),
         fingerprint,
         expires,
+        peer,
+        user_agent,
     )
     ttl = settings.jwt_access_token_ttl_seconds
     access = jwt.encode(
@@ -133,6 +140,9 @@ async def sign_in(
     settings: Settings,
     body: OAuthExchangeRequest,
     identity: OAuthIdentity,
+    *,
+    peer: IPv4Address | IPv6Address | None = None,
+    user_agent: str | None = None,
 ) -> AuthSessionResponse:
     async with connection.transaction():
         await connection.execute(
@@ -164,12 +174,14 @@ async def sign_in(
             await connection.execute(
                 """
                 INSERT INTO fz152_consent_journal
-                    (user_id, policy_version, action, consent_scope)
-                VALUES ($1, $2, 'granted', $3::jsonb)
+                    (user_id, policy_version, action, consent_scope, ip_address, user_agent)
+                VALUES ($1, $2, 'granted', $3::jsonb, $4::inet, $5)
                 """,
                 user_id,
                 body.policy_version,
                 body.consent_scope.model_dump(),
+                peer,
+                user_agent,
             )
         else:
             await lock_user(connection, user_id)
@@ -184,11 +196,18 @@ async def sign_in(
                 body.provider,
                 identity.subject,
             )
-        return await _issue_session(connection, settings, user_id, body.device_fingerprint)
+        return await _issue_session(
+            connection, settings, user_id, body.device_fingerprint, peer=peer, user_agent=user_agent
+        )
 
 
 async def refresh_session(
-    connection: asyncpg.Connection, settings: Settings, body: TokenRefreshRequest
+    connection: asyncpg.Connection,
+    settings: Settings,
+    body: TokenRefreshRequest,
+    *,
+    peer: IPv4Address | IPv6Address | None = None,
+    user_agent: str | None = None,
 ) -> AuthSessionResponse:
     digest = token_hash(body.refresh_token)
     error = "REFRESH_TOKEN_EXPIRED_OR_REVOKED"
@@ -219,7 +238,14 @@ async def refresh_session(
                 "UPDATE auth_refresh_sessions SET revoked_at = now() WHERE id = $1", session["id"]
             )
             if session["device_fingerprint"] == body.device_fingerprint:
-                return await _issue_session(connection, settings, user_id, body.device_fingerprint)
+                return await _issue_session(
+                    connection,
+                    settings,
+                    user_id,
+                    body.device_fingerprint,
+                    peer=peer,
+                    user_agent=user_agent,
+                )
             error = "DEVICE_FINGERPRINT_MISMATCH"
     # Commit revocation before responding with an error.
     raise CatalogException(error)
