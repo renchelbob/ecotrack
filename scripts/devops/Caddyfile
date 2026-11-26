@@ -1,0 +1,16 @@
+{$ECOTRACK_API_HOST} {
+	encode zstd gzip
+
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "no-referrer"
+		-Server
+	}
+
+	reverse_proxy 127.0.0.1:{$ECOTRACK_API_PORT:8000} {
+		health_uri /readyz
+		health_interval 10s
+	}
+}

@@ -16,11 +16,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     binutils \
     && rm -rf /var/lib/apt/lists/*
 
-COPY pyproject.toml ./
+COPY pyproject.toml uv.lock ./
 
 # Install ONLY production runtime dependencies (excludes alembic, pytest, hypothesis, crosshair)
 RUN --mount=type=cache,target=/root/.cache/uv \
-    uv sync --no-dev --no-install-project --no-editable
+    uv sync --locked --no-dev --no-install-project --no-editable
 
 # Strip debug symbols from C/Rust shared libraries and remove package test/doc bloat
 RUN find /app/.venv -type f -name "*.so*" -exec strip --strip-unneeded {} + 2>/dev/null || true && \
@@ -35,7 +35,7 @@ COPY app ./app
 FROM builder AS migrations
 
 RUN --mount=type=cache,target=/root/.cache/uv \
-    uv sync --group migrations --no-install-project --no-editable
+    uv sync --locked --no-dev --group migrations --no-install-project --no-editable
 
 COPY alembic.ini ./
 ENV PATH="/app/.venv/bin:$PATH"
@@ -70,7 +70,6 @@ FROM python:3.14-slim-bookworm AS runtime
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
-    PYTHONOPTIMIZE=1 \
     PATH="/app/.venv/bin:$PATH"
 
 # Prune unused Python 3.14 standard library modules (~34 MB saved) and strip libpython
@@ -95,4 +94,4 @@ COPY --from=builder --chown=ecotrack:ecotrack /app/app /app/app
 USER ecotrack
 EXPOSE 8000
 
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "2", "--no-access-log"]
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--no-access-log"]
