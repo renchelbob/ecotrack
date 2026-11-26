@@ -90,8 +90,5 @@ docker compose up --build
 
 Подробное описание ролей, правил разработки и запретов зафиксировано в [`AGENTS.md`](./AGENTS.md).
 
-* **Разработчик 1 (Backend, DevOps & 3 High-Complexity Modules):** отвечает за `/backend/**`, `/scripts/**`, `docker-compose.yml`, `Makefile`, а также 3 математически сложных модуля мобильного клиента:
-  1. `mobile/lib/features/home_mascot/presentation/widgets/mascot_vector_painter.dart` (векторный Canvas маскота).
-  2. `mobile/lib/core/database/outbox_dispatcher.dart` (FSM оффлайн-очереди мутаций).
-  3. `mobile/lib/features/map_activity/presentation/screens/map_activity_screen.dart` (двухрежимная карта с LayerHitNotifier).
-* **Разработчик 2 (Mobile Client):** отвечает за `/mobile/**` (Flutter UI, BLoC-состояния, навигация `go_router`, локальная база SQLite WAL, экраны 152-ФЗ).
+* **Разработчик 1 (Backend, Data & DevOps):** отвечает за `/backend/**`, `/scripts/**`, `docker-compose.yml` и backend-цели `Makefile`.
+* **Разработчик 2 (Mobile Client):** отвечает за весь каталог `/mobile/**` (Flutter UI, BLoC-состояния, навигация `go_router`, локальная база SQLite WAL, экраны 152-ФЗ, а также три ключевых модуля `mascot_vector_painter.dart`, `outbox_dispatcher.dart`, `map_activity_screen.dart`) и mobile-цели `Makefile`.

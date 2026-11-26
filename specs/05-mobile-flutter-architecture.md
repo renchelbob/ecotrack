@@ -122,7 +122,7 @@ mobile/lib/
 │   │   └── eco_error_banner_presenter.dart        # Deterministic UI presenter per client_action
 │   ├── database/
 │   │   ├── sqlite_database.dart                   # WAL mode sqflite/sqlite3 manager
-│   │   └── outbox_dispatcher.dart                 # (Authored by Developer 1) Offline mutation outbox worker (UUIDv7)
+│   │   └── outbox_dispatcher.dart                 # Offline mutation outbox worker (UUIDv7, CAS claim & causal barrier)
 │   ├── network/
 │   │   ├── dio_client.dart                        # Configured Dio ^5.x wrapper
 │   │   ├── auth_header_interceptor.dart           # Injects Bearer access token
@@ -156,7 +156,7 @@ mobile/lib/
     │   ├── data/                                  # HomeSummaryAggregator
     │   └── presentation/                          # HomeCubit, HomeScreen, FoxMascotWidget, MascotAccessoryLayerPainter
     │       └── widgets/
-    │           └── mascot_vector_painter.dart     # (Authored by Developer 1) Fox mascot Canvas geometry & accessories
+    │           └── mascot_vector_painter.dart     # Transparent wireframe fox mascot Canvas geometry & accessories (owned by Developer 2)
     ├── map_activity/
     │   ├── domain/                                # DailyActivityDetail, GpsTrackPointClassified,
     │   │                                          # RouteSegmentAllocationItem, WastePointMapItem, MapRepository
@@ -164,7 +164,7 @@ mobile/lib/
     │   └── presentation/                          # MapActivityBloc, RoutePolylineOverlay, TransportAllocationBottomSheet,
     │       │                                      # WastePointDetailSheet, SuggestWastePointModal
     │       └── screens/
-    │           └── map_activity_screen.dart         # (Authored by Developer 1) Dual-mode FlutterMap + LayerHitNotifier
+    │           └── map_activity_screen.dart         # Dual-mode FlutterMap + LayerHitNotifier (owned by Developer 2)
     ├── stats/
     │   ├── domain/                                # EmissionsStatistics, EcoEquivalentsMetrics,
     │   │                                          # SharedForestChallenge, LeaderboardEntry, StatsRepository
@@ -194,7 +194,7 @@ mobile/lib/
                                                    # BadgesAndAccessoriesScreen, Fz152DeleteAccountModal
 ```
 
-> **Developer 1 Delegated Module Canonical Paths**: `mobile/lib/features/home_mascot/presentation/widgets/mascot_vector_painter.dart`, `mobile/lib/core/database/outbox_dispatcher.dart`, and `mobile/lib/features/map_activity/presentation/screens/map_activity_screen.dart`.
+> **Core Mobile Module Canonical Paths (Owned by Developer 2)**: `mobile/lib/features/home_mascot/presentation/widgets/mascot_vector_painter.dart`, `mobile/lib/core/database/outbox_dispatcher.dart`, and `mobile/lib/features/map_activity/presentation/screens/map_activity_screen.dart`.
 
 ### 2.2 Manual Dependency Injection Composition Root (`AppDependencies`)
 Zero service-locator singletons (`get_it`) are permitted. `AppDependencies` constructs all infrastructure adapters, SQLite DAOs, and repositories once during `main()` bootstrap and injects them into the widget tree via `MultiRepositoryProvider` and `MultiBlocProvider`:

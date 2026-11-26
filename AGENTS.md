@@ -48,21 +48,19 @@ ecotrack/
     └── osm_ingest/                     # Geofabrik OSM PBF + data.mos.ru + municipal ETL into PostGIS
 ```
 
-### Ownership Boundaries & 3-File High-Complexity Exception
+### Ownership Boundaries & Core Mobile Module Paths
 | Role | Write Access | Read-Only Access |
 | :--- | :--- | :--- |
 | **UI/UX Designer / PM / Team Lead** | `/screens/**` (`wireframes.png`, `07..09`, `14..23` — **LOCKED VISUAL REFERENCE CANON**), `/specs/01-product-and-ux-spec.md` | `/contracts/**`, `/mobile/**`, `/backend/**` |
-| **Developer 1 (Backend, Data & DevOps)** | `/backend/**`, `/scripts/**`, `/docker-compose.yml`, `/Makefile` (backend targets), **PLUS 3 High-Complexity Mobile Modules** (see below) | `/contracts/**`, `/specs/**`, `/screens/**`, `/mobile/**` (except the 3 delegated modules) |
-| **Developer 2 (Flutter Mobile Client)** | `/mobile/**` (except initial authorship of the 3 delegated core modules), `/Makefile` (mobile targets) | `/contracts/**`, `/specs/**`, `/screens/**`, `/backend/**` |
+| **Developer 1 (Backend, Data & DevOps)** | `/backend/**`, `/scripts/**`, `/docker-compose.yml`, `/Makefile` (backend targets) | `/contracts/**`, `/specs/**`, `/screens/**`, `/mobile/**` |
+| **Developer 2 (Flutter Mobile Client)** | `/mobile/**` (all Flutter client modules including `mascot_vector_painter.dart`, `outbox_dispatcher.dart`, and `map_activity_screen.dart`), `/Makefile` (mobile targets) | `/contracts/**`, `/specs/**`, `/screens/**`, `/backend/**` |
 | **Feature AI Coding Agents** | Strictly scoped to the assigned workspace (`/backend/**` OR `/mobile/**`) | `/contracts/**`, `/specs/**`, `/screens/**`, `/AGENTS.md` |
 
-> **3-File High-Complexity Delegation Protocol**:
-> Due to high mathematical and algorithmic complexity (vector Bézier curves, distributed queue FSM, and map spatial polyline hit-testing), **Developer 1** (leveraging advanced reasoning models such as OpenAI Codex/o1/o3) authors and delivers the following 3 self-contained mobile modules:
+> **Core Mobile Module Canonical Paths (Owned by Developer 2)**:
+> All Flutter modules under `/mobile/**` — including the three core modules with elevated domain/UI requirements — are owned and delivered end-to-end by **Developer 2**. **Developer 1** must not author or modify files under `/mobile/**`. The canonical paths below remain mandatory for Gate 4:
 > 1. `mobile/lib/features/home_mascot/presentation/widgets/mascot_vector_painter.dart` (fox mascot Canvas geometry, mood transitions, 5 vector accessories).
 > 2. `mobile/lib/core/database/outbox_dispatcher.dart` (offline mutation outbox FSM with causal barriers, exponential backoff, coalescing).
 > 3. `mobile/lib/features/map_activity/presentation/screens/map_activity_screen.dart` (dual-mode `flutter_map` instance with `LayerHitNotifier` clickable polylines).
->
-> **Sequencing**: Developer 1 delivers these 3 standalone files early. **Developer 2** consumes them as pre-verified building blocks, assembling all surrounding screens, BLoCs, router branches, and standard UI.
 
 ---
 

@@ -96,7 +96,7 @@ REQUIRED_LINTER_RULES = frozenset({
 
 FORBIDDEN_PLATFORM_DIRS = ("macos", "windows", "linux", "web")
 
-CANONICAL_DELEGATED_PATHS = {
+CANONICAL_CORE_MODULE_PATHS = {
     "mascot_vector_painter.dart": "features/home_mascot/presentation/widgets/mascot_vector_painter.dart",
     "map_activity_screen.dart": "features/map_activity/presentation/screens/map_activity_screen.dart",
     "outbox_dispatcher.dart": "core/database/outbox_dispatcher.dart",
@@ -128,6 +128,8 @@ PRESENTATION_FORBIDDEN_IMPORTS = (
 
 DOMAIN_FORBIDDEN_IMPORTS = (
     "package:flutter/",
+    "package:material_ui/",
+    "package:cupertino_ui/",
     "package:dio/",
     "package:sqflite/",
     "package:sqlite3/",
@@ -492,7 +494,7 @@ def check_gate_4_platform_and_paths(root: Path) -> tuple[str, list[str]]:
     lib_dir = mobile_dir / "lib"
     if lib_dir.is_dir():
         for dart_file in sorted(lib_dir.rglob("*.dart")):
-            canonical = CANONICAL_DELEGATED_PATHS.get(dart_file.name)
+            canonical = CANONICAL_CORE_MODULE_PATHS.get(dart_file.name)
             if canonical is not None:
                 rel_posix = dart_file.relative_to(lib_dir).as_posix()
                 if rel_posix != canonical:
@@ -768,12 +770,12 @@ def check_gate_8_tests(root: Path) -> tuple[str, list[str]]:
     mobile_dir = root / "mobile"
     test_dir = mobile_dir / "test"
     test_files = sorted(test_dir.rglob("*.dart")) if test_dir.is_dir() else []
+    lib_dir = mobile_dir / "lib"
 
-    if not test_files:
+    if not test_files and not (lib_dir / "core" / "database" / "outbox_dispatcher.dart").is_file():
         return "SKIP", ["No .dart files found under mobile/test"]
 
     errors: list[str] = []
-    lib_dir = mobile_dir / "lib"
 
     pbt_dir = test_dir / "pbt"
     if pbt_dir.is_dir():
