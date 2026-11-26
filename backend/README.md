@@ -188,6 +188,18 @@ docker compose exec -T db createdb -U ecotrack ecotrack_restore_check
 bash scripts/devops/postgres_backup.sh restore /path/to/ecotrack_backup.dump ecotrack_restore_check
 ```
 
+The restore database must be isolated from API traffic. The restore command
+reapplies verified erasures from the authoritative EcoTrack database defined
+by the API service's connection settings. Keep the original deletion history
+and its HMAC key available. Coordinate the final reconciliation and cutover
+with a pause in writes to the authoritative database. A failed reconciliation
+leaves the target isolated for investigation.
+
+Uvicorn supplies the peer IP for the consent and session audit. Configure
+FORWARDED_ALLOW_IPS with the actual reverse proxy addresses when forwarding
+client IPs, and leave other peers untrusted.
+
+
 Для ежедневной ротации на VPS выполняйте `backup`, а после успешного создания
 архива запускайте `prune /var/backups/ecotrack-postgres`. Ротация удаляет
 архивы скрипта и их контрольные суммы по достижении возраста 14 суток.

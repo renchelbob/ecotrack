@@ -1,0 +1,16 @@
+rules:
+  - id: ecotrack-ledger-update
+    languages: [generic]
+    message: Ledger rows are immutable.
+    severity: ERROR
+    pattern-regex: '(?i)\bUPDATE\s+point_ledger\b'
+  - id: ecotrack-balance-update
+    languages: [generic]
+    message: Balance is synchronised by the point_ledger insert trigger.
+    severity: ERROR
+    pattern-regex: '(?is)\bUPDATE\s+users\s+SET\s+[^;"]*\bpoints_balance\s*='
+  - id: ecotrack-direct-ledger-delete
+    languages: [generic]
+    message: Ledger rows may be removed only by the account erasure cascade.
+    severity: ERROR
+    pattern-regex: '(?i)\bDELETE\s+FROM\s+point_ledger\b'

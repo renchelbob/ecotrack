@@ -40,7 +40,7 @@ async def register(
 ) -> PushTokenResponse:
     user = principal.user_id
     async with connection.transaction():
-        await lock_user(connection, user)
+        await lock_user(connection, user, session_id=principal.session_id)
         await require_active_account(connection, user)
         await connection.execute(
             "SELECT pg_advisory_xact_lock(hashtextextended($1, 5))", body.token
@@ -82,7 +82,11 @@ async def register(
 async def unregister(
     token: Annotated[str, Path(min_length=8, max_length=512)], principal: AuthUser, connection: Db
 ) -> Response:
-    await connection.execute(
-        "DELETE FROM user_push_tokens WHERE user_id = $1 AND token = $2", principal.user_id, token
-    )
+    async with connection.transaction():
+        await lock_user(connection, principal.user_id, session_id=principal.session_id)
+        await connection.execute(
+            "DELETE FROM user_push_tokens WHERE user_id = $1 AND token = $2",
+            principal.user_id,
+            token,
+        )
     return Response(status_code=204)

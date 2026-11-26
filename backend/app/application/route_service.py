@@ -13,8 +13,13 @@ from app.api.v1.route_models import (
     GpsTrackPointsBatchResponse,
     RouteSegmentAllocationInput,
 )
-from app.application.activity_service import assert_activity_access, to_activity_summary
+from app.application.activity_service import (
+    assert_activity_access,
+    streak_after_activity,
+    to_activity_summary,
+)
 from app.domain.hybrid_co2 import automatic_emissions
+from app.infrastructure.db.idempotency import claim_in_flight_key, wait_for_in_flight_key
 from app.infrastructure.db.repositories import badge_repo, social_repo
 from app.infrastructure.db.repositories.allocation_repo import (
     list_allocations,
@@ -40,10 +45,17 @@ def _editable(user: asyncpg.Record, activity_date: date) -> bool:
 
 
 async def ingest_track(
-    connection: asyncpg.Connection, user_id: UUID, body: GpsTrackPointsBatchRequest
+    connection: asyncpg.Connection,
+    user_id: UUID,
+    body: GpsTrackPointsBatchRequest,
+    *,
+    key: UUID | None = None,
+    session_id: UUID | None = None,
 ) -> GpsTrackPointsBatchResponse:
     async with connection.transaction():
-        await lock_user(connection, user_id)
+        if key is not None:
+            await wait_for_in_flight_key(connection, key)
+        await lock_user(connection, user_id, session_id=session_id)
         user = await route_context(connection, user_id, body.activity_date)
         assert_activity_access(user)
         if not user["gps_scope"]:
@@ -138,7 +150,7 @@ async def read_activity(
 
 
 async def _reload_summary(
-    connection: asyncpg.Connection, summary: asyncpg.Record
+    connection: asyncpg.Connection, user: asyncpg.Record, summary: asyncpg.Record
 ) -> tuple[asyncpg.Record, int]:
     totals = await connection.fetchrow(
         """
@@ -171,17 +183,25 @@ async def _reload_summary(
     if updated is None:
         raise CatalogException("DAILY_ACTIVITY_NOT_FOUND")
     delta = updated["total_co2_saved_grams"] - summary["total_co2_saved_grams"]
-    if delta:
+    streak, freezes, active_date = streak_after_activity(
+        user, summary["activity_date"], updated["validated_steps"], updated["total_co2_saved_grams"]
+    )
+    if delta or active_date != user["last_active_local_date"]:
         await connection.execute(
             """
             UPDATE users
             SET lifetime_co2_saved_grams = GREATEST(0, lifetime_co2_saved_grams + $2::bigint),
-                updated_at = now()
+                current_streak_days = $3, longest_streak_days = GREATEST(longest_streak_days, $3),
+                streak_freeze_count = $4, last_active_local_date = $5, updated_at = now()
             WHERE id = $1
             """,
             summary["user_id"],
             delta,
+            streak,
+            freezes,
+            active_date,
         )
+    if delta:
         await social_repo.update_forest(
             connection, summary["user_id"], summary["activity_date"], grams=delta
         )
@@ -190,9 +210,9 @@ async def _reload_summary(
 
 
 async def _lock_edit_context(
-    connection: asyncpg.Connection, user_id: UUID, activity_date: date
+    connection: asyncpg.Connection, user_id: UUID, activity_date: date, session_id: UUID | None
 ) -> tuple[asyncpg.Record, asyncpg.Record, asyncpg.Record | None]:
-    await lock_user(connection, user_id)
+    await lock_user(connection, user_id, session_id=session_id)
     user = await route_context(connection, user_id, activity_date)
     assert_activity_access(user)
     if not _editable(user, activity_date):
@@ -207,20 +227,34 @@ async def save_allocations(
     user_id: UUID,
     activity_date: date,
     items: list[RouteSegmentAllocationInput],
+    *,
+    key: UUID | None = None,
+    session_id: UUID | None = None,
 ) -> DailyActivityDetailResponse:
     async with connection.transaction():
-        user, summary, track = await _lock_edit_context(connection, user_id, activity_date)
+        if key is not None:
+            await claim_in_flight_key(connection, key)
+        user, summary, track = await _lock_edit_context(
+            connection, user_id, activity_date, session_id
+        )
         await replace_allocations(connection, summary, track["id"] if track else None, items)
-        summary, delta = await _reload_summary(connection, summary)
+        summary, delta = await _reload_summary(connection, user, summary)
         return await _details(connection, user, summary, track, delta)
 
 
 @retry_deadlock
 async def remove_allocation(
-    connection: asyncpg.Connection, user_id: UUID, activity_date: date, allocation_id: UUID
+    connection: asyncpg.Connection,
+    user_id: UUID,
+    activity_date: date,
+    allocation_id: UUID,
+    *,
+    session_id: UUID | None = None,
 ) -> DailyActivityDetailResponse:
     async with connection.transaction():
-        user, summary, track = await _lock_edit_context(connection, user_id, activity_date)
+        user, summary, track = await _lock_edit_context(
+            connection, user_id, activity_date, session_id
+        )
         deleted = await connection.fetchval(
             """
             DELETE FROM route_segment_allocations
@@ -231,5 +265,5 @@ async def remove_allocation(
         )
         if deleted is None:
             raise CatalogException("ALLOCATION_NOT_FOUND")
-        summary, delta = await _reload_summary(connection, summary)
+        summary, delta = await _reload_summary(connection, user, summary)
         return await _details(connection, user, summary, track, delta)

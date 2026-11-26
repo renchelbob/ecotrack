@@ -8,6 +8,7 @@ from app.api.errors import CatalogException
 from app.api.v1.activity_models import DailyActivitySummaryResponse, SyncDailyStepsRequest
 from app.application.auth_service import AccessSession
 from app.domain.hybrid_co2 import automatic_emissions, calculate_step_reward_delta
+from app.infrastructure.db.idempotency import claim_in_flight_key
 from app.infrastructure.db.repositories import badge_repo, social_repo, user_repo
 from app.infrastructure.db.transactions import retry_deadlock
 
@@ -21,9 +22,12 @@ def assert_activity_access(user: asyncpg.Record, *, from_sensor: bool = False) -
         raise CatalogException("FZ152_HEALTH_SENSOR_CONSENT_MISSING")
 
 
-async def _activity_user(connection: asyncpg.Connection, user_id: UUID) -> asyncpg.Record:
+async def _activity_user(
+    connection: asyncpg.Connection, user_id: UUID, session: AccessSession | None
+) -> asyncpg.Record:
     # Consent changes take the same user lock. Read the journal after acquiring it.
-    await connection.fetchval("SELECT id FROM users WHERE id = $1 FOR UPDATE", user_id)
+    session_id = session.principal.session_id if session is not None else None
+    await user_repo.lock_user(connection, user_id, session_id=session_id)
     user = await connection.fetchrow(
         """
         SELECT u.*, COALESCE((
@@ -60,7 +64,7 @@ async def _read_previous_request(
     return ledger
 
 
-def _streak(
+def streak_after_activity(
     user: asyncpg.Record, activity_date: date, steps: int, total_co2: int
 ) -> tuple[int, int, date | None]:
     previous = user["last_active_local_date"]
@@ -145,13 +149,16 @@ async def sync_steps(
     if body.activity_date > (now + timedelta(minutes=body.timezone_offset_minutes)).date():
         raise CatalogException("ACTIVITY_DATE_IN_FUTURE")
     if body.raw_sensor_steps > 100_000:
+        async with connection.transaction():
+            user = await _activity_user(connection, user_id, session)
+            await _record_step_cap_rejection(connection, user, body)
         raise CatalogException("ANTIFRAUD_DAILY_STEP_CAP_EXCEEDED")
     if snapshot["id"] is not None:
         assert_activity_access(snapshot, from_sensor=True)
         return to_activity_summary(snapshot, balance=snapshot["points_balance"])
     async with connection.transaction():
-        user = await _activity_user(connection, user_id)
-        await connection.execute("SELECT pg_advisory_xact_lock(hashtextextended($1, 1))", str(key))
+        await claim_in_flight_key(connection, key)
+        user = await _activity_user(connection, user_id, session)
         replay = await _read_previous_request(connection, key, user_id, body.activity_date)
         current = await connection.fetchrow(
             "SELECT * FROM daily_step_summaries WHERE user_id = $1 AND activity_date = $2",
@@ -161,6 +168,25 @@ async def sync_steps(
         if replay is not None and current is not None:
             return to_activity_summary(current, balance=user["points_balance"])
         return await _save_steps(connection, user, current, key, body, now)
+
+
+async def _record_step_cap_rejection(
+    connection: asyncpg.Connection, user: asyncpg.Record, body: SyncDailyStepsRequest
+) -> None:
+    await connection.execute(
+        """
+        INSERT INTO daily_step_summaries (
+            user_id, activity_date, timezone_offset_minutes, stride_length_cm,
+            antifraud_flagged, antifraud_reason
+        ) VALUES ($1, $2, $3, $4, true, 'DAILY_CAP_100K_EXCEEDED')
+        ON CONFLICT (user_id, activity_date) DO UPDATE
+        SET antifraud_flagged = true, antifraud_reason = EXCLUDED.antifraud_reason
+        """,
+        user["id"],
+        body.activity_date,
+        body.timezone_offset_minutes,
+        body.stride_length_cm or user["stride_length_cm"],
+    )
 
 
 async def _save_steps(
@@ -177,7 +203,7 @@ async def _save_steps(
     allocated_grams = current["allocated_co2_saved_grams"] if current else 0
     previous_co2 = current["total_co2_saved_grams"] if current else 0
     step_increase = body.raw_sensor_steps - previous_steps
-    if current:
+    if current and not (current["antifraud_flagged"] and previous_steps == 0):
         elapsed = (now - current["last_synced_at"]).total_seconds()
         if elapsed >= 30 and step_increase > 500 and step_increase / elapsed > 4.5:
             raise CatalogException("ANTIFRAUD_STEP_SPIKE_DETECTED")
@@ -232,7 +258,7 @@ async def _save_steps(
             co2_delta,
             summary["id"],
         )
-    streak, freezes, active_date = _streak(user, body.activity_date, validated, total)
+    streak, freezes, active_date = streak_after_activity(user, body.activity_date, validated, total)
     await connection.execute(
         """
         UPDATE users SET

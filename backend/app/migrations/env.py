@@ -1,7 +1,7 @@
 import asyncio
 
 from alembic import context
-from sqlalchemy import Connection, pool
+from sqlalchemy import Connection, pool, text
 from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import create_async_engine
 
@@ -25,9 +25,12 @@ def include_object(
 
 
 def run_migrations(connection: Connection) -> None:
-    context.configure(connection=connection, include_object=include_object)
-    with context.begin_transaction():
-        context.run_migrations()
+    with connection.begin():
+        # Lock before Alembic reads the version table, including on an empty database.
+        connection.execute(text("SELECT pg_advisory_xact_lock(454374062001)"))
+        context.configure(connection=connection, include_object=include_object)
+        with context.begin_transaction():
+            context.run_migrations()
 
 
 async def migrate() -> None:

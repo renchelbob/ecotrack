@@ -6,8 +6,20 @@ from app.api.errors import CatalogException
 from app.api.v1.auth_models import MascotMoodState, MascotVisualState, UserProfileResponse
 
 
-async def lock_user(connection: asyncpg.Connection, user_id: UUID) -> None:
+async def lock_user(
+    connection: asyncpg.Connection, user_id: UUID, *, session_id: UUID | None = None
+) -> None:
     if not await connection.fetchval("SELECT id FROM users WHERE id = $1 FOR UPDATE", user_id):
+        raise CatalogException("AUTH_TOKEN_INVALID")
+    if session_id is not None and not await connection.fetchval(
+        """
+        SELECT EXISTS(SELECT 1 FROM auth_refresh_sessions
+        WHERE id = $1 AND user_id = $2 AND revoked_at IS NULL
+          AND expires_at > clock_timestamp())
+        """,
+        session_id,
+        user_id,
+    ):
         raise CatalogException("AUTH_TOKEN_INVALID")
 
 
@@ -43,7 +55,12 @@ async def load_profile(connection: asyncpg.Connection, user_id: UUID) -> UserPro
         FROM users u
         LEFT JOIN user_vehicles v ON v.user_id = u.id
         LEFT JOIN daily_step_summaries d ON d.user_id = u.id
-            AND d.activity_date = (now() AT TIME ZONE 'Europe/Moscow')::date
+            AND d.activity_date = (
+                (now() AT TIME ZONE 'UTC') + make_interval(mins => COALESCE((
+                    SELECT timezone_offset_minutes FROM daily_step_summaries
+                    WHERE user_id = u.id ORDER BY activity_date DESC LIMIT 1
+                ), 180))
+            )::date
         WHERE u.id = $1
         """,
         user_id,

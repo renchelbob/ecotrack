@@ -1,8 +1,9 @@
 from pathlib import Path
 
-import asyncpg
 from alembic import op
 from sqlalchemy.engine import AdaptedConnection
+
+from app.migrations.legacy_schema import initialize_schema
 
 revision = "0001_initial_contract"
 down_revision = None
@@ -23,13 +24,10 @@ def upgrade() -> None:
         raise RuntimeError("Expected initial schema to be wrapped in BEGIN/COMMIT")
     ddl = before + "\n" + statements.removesuffix("\nCOMMIT;")
 
-    async def execute(connection: asyncpg.Connection) -> None:
-        await connection.execute(ddl)
-
     adapter = op.get_bind().connection.dbapi_connection
     if not isinstance(adapter, AdaptedConnection):
         raise RuntimeError("EcoTrack migrations require the asyncpg adapter")
-    adapter.run_async(execute)
+    adapter.run_async(lambda connection: initialize_schema(connection, ddl))
 
 
 def downgrade() -> None:

@@ -66,7 +66,7 @@ async def save_vehicle(
     if not vehicle_name:
         raise CatalogException("VALIDATION_ERROR")
     async with connection.transaction():
-        await lock_user(connection, principal.user_id)
+        await lock_user(connection, principal.user_id, session_id=principal.session_id)
         await _check_access(connection, principal.user_id)
         row = await connection.fetchrow(
             """
@@ -107,7 +107,7 @@ async def save_vehicle(
 )
 async def delete_vehicle(_key: MutationKey, principal: AuthUser, connection: Db) -> Response:
     async with connection.transaction():
-        await lock_user(connection, principal.user_id)
+        await lock_user(connection, principal.user_id, session_id=principal.session_id)
         await _check_access(connection, principal.user_id)
         await connection.execute("DELETE FROM user_vehicles WHERE user_id = $1", principal.user_id)
     return Response(status_code=204)

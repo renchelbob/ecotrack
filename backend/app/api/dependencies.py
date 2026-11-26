@@ -1,5 +1,6 @@
 from collections.abc import AsyncIterator
 from functools import lru_cache
+from ipaddress import IPv4Address, IPv6Address, ip_address
 from time import time
 from typing import Annotated, cast
 from uuid import UUID
@@ -8,6 +9,7 @@ import asyncpg
 import jwt
 from fastapi import Depends, Header, Request
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from pydantic import AfterValidator
 
 from app.api.errors import CatalogException
 from app.application.auth_service import AccessSession, Principal, signing_key
@@ -48,7 +50,24 @@ Db = Annotated[asyncpg.Connection, Depends(get_connection)]
 AppSettings = Annotated[Settings, Depends(get_settings)]
 
 
-MutationKey = Annotated[UUID, Header(alias="Idempotency-Key")]
+def _validate_mutation_key(key: UUID) -> UUID:
+    if key.version != 7:
+        raise ValueError("Idempotency-Key must be a UUIDv7")
+    return key
+
+
+MutationKey = Annotated[UUID, Header(alias="Idempotency-Key"), AfterValidator(_validate_mutation_key)]
+
+
+def consent_audit_context(request: Request) -> tuple[IPv4Address | IPv6Address | None, str | None]:
+    # Uvicorn resolves request.client using its configured trusted proxy list.
+    peer = None
+    if request.client is not None:
+        try:
+            peer = ip_address(request.client.host)
+        except ValueError:
+            pass
+    return peer, request.headers.get("user-agent")
 
 
 @lru_cache(maxsize=512)

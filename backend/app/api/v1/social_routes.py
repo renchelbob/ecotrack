@@ -48,7 +48,9 @@ async def inventory(principal: AuthUser, connection: Db) -> MascotInventoryRespo
 async def equip(
     body: EquipMascotAccessoryRequest, _key: MutationKey, principal: AuthUser, connection: Db
 ) -> UserProfileResponse:
-    return await social_service.equip_accessory(connection, principal.user_id, body.accessory_code)
+    return await social_service.equip_accessory(
+        connection, principal.user_id, body.accessory_code, session_id=principal.session_id
+    )
 
 
 @router.get(

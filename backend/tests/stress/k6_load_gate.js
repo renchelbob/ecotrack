@@ -26,11 +26,17 @@ export const options = {
   },
 };
 
+function idempotencyKey() {
+  const hexTime = Date.now().toString(16).padStart(12, '0');
+  const random = crypto.randomUUID();
+  return hexTime.slice(0, 8) + '-' + hexTime.slice(8) + '-7' + random.slice(15);
+}
+
+export function setup() {
+  if (!token) throw new Error('ECOTRACK_ACCESS_TOKEN is required for the API load gate');
+}
+
 export default function () {
-  if (!token) {
-    check(http.get(baseUrl + '/readyz'), { 'ready 200': (reply) => reply.status === 200 });
-    return;
-  }
   const headers = { Authorization: `Bearer ${token}` };
   const map = http.get(
     baseUrl + '/api/v1/map/waste-points'
@@ -43,7 +49,7 @@ export default function () {
   const steps = http.put(
     baseUrl + '/api/v1/activity/steps/daily',
     JSON.stringify({ activity_date: todayMoscow, timezone_offset_minutes: 180, raw_sensor_steps: 6400 }),
-    { headers: { ...headers, 'Content-Type': 'application/json', 'Idempotency-Key': crypto.randomUUID() } },
+    { headers: { ...headers, 'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey() } },
   );
   check(steps, { 'steps 200': (reply) => reply.status === 200 });
   stepsLatency.add(steps.timings.duration);

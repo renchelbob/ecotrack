@@ -15,6 +15,7 @@ from app.api.v1.map_rso_models import (
 from app.application.activity_service import assert_activity_access
 from app.application.social_service import require_active_account
 from app.domain.rso_trust import BASE_TRUST_DELTA
+from app.infrastructure.db.idempotency import claim_in_flight_key
 from app.infrastructure.db.repositories import badge_repo, map_rso_repo, user_repo
 from app.infrastructure.db.transactions import retry_deadlock
 
@@ -55,11 +56,13 @@ async def report_point(
     key: UUID,
     point_id: UUID,
     body: SubmitWastePointReportRequest,
+    *,
+    session_id: UUID | None = None,
 ) -> WastePointReportCreatedResponse:
     async with connection.transaction():
-        await user_repo.lock_user(connection, user_id)
+        await claim_in_flight_key(connection, key)
+        await user_repo.lock_user(connection, user_id, session_id=session_id)
         await require_active_account(connection, user_id)
-        await connection.execute("SELECT pg_advisory_xact_lock(hashtextextended($1, 1))", str(key))
         previous = await connection.fetchrow(
             "SELECT * FROM point_reports WHERE idempotency_key = $1", key
         )
@@ -105,6 +108,8 @@ async def _insert_report(
     key: UUID,
     point_id: UUID,
     body: SubmitWastePointReportRequest,
+    *,
+    session_id: UUID | None = None,
 ) -> asyncpg.Record:
     distance = await connection.fetchval(
         """
@@ -172,10 +177,11 @@ async def _report_response(
 
 @retry_deadlock
 async def suggest_point(
-    connection: asyncpg.Connection, user_id: UUID, key: UUID, body: SuggestWastePointRequest
+    connection: asyncpg.Connection, user_id: UUID, key: UUID, body: SuggestWastePointRequest,
+    *, session_id: UUID | None = None,
 ) -> WastePointDetailResponse:
     async with connection.transaction():
-        await user_repo.lock_user(connection, user_id)
+        await user_repo.lock_user(connection, user_id, session_id=session_id)
         await require_active_account(connection, user_id)
         # Use one lock for the nearest-point check and insert across all map writers.
         await connection.execute("SELECT pg_advisory_xact_lock(49731, 1)")

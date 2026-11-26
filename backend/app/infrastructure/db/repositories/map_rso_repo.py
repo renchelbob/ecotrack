@@ -22,6 +22,45 @@ BBOX_CACHE_LIMIT = 32
 _bbox_cache: OrderedDict[BboxKey, tuple[str, bytes]] = OrderedDict()
 
 
+BBOX_POINTS_SQL = """
+SELECT id, title, address_text, accepted_fractions, ST_Y(geom) AS lat,
+       ST_X(geom) AS lon, status, trust_score, confirmations_count, issues_count,
+       ROW(current_database(), pg_postmaster_start_time(), pg_current_snapshot())::text
+           AS view_version
+FROM waste_points WHERE geom && ST_MakeEnvelope($1, $2, $3, $4, 4326)
+    AND (status = 'active' OR ($5::boolean AND status = 'unverified'))
+    AND trust_score >= $6
+    AND ($7::waste_fraction_code[] IS NULL OR accepted_fractions && $7)
+ORDER BY trust_score DESC, confirmations_count DESC, id LIMIT 500
+"""
+
+BBOX_CLUSTERS_SQL = """
+WITH grouped AS (
+    SELECT (array_agg(id ORDER BY trust_score DESC, id))[1] AS representative,
+           count(*) AS cluster_size, ST_Centroid(ST_Collect(geom)) AS center,
+           round(avg(trust_score), 2) AS trust_score,
+           sum(confirmations_count) AS confirmations_count,
+           sum(issues_count) AS issues_count
+    FROM waste_points WHERE geom && ST_MakeEnvelope($1, $2, $3, $4, 4326)
+        AND (status = 'active' OR ($5::boolean AND status = 'unverified'))
+        AND trust_score >= $6
+        AND ($7::waste_fraction_code[] IS NULL OR accepted_fractions && $7)
+    GROUP BY ST_SnapToGrid(geom, $8::double precision)
+    ORDER BY cluster_size DESC, representative LIMIT 350
+)
+SELECT p.id, CASE WHEN g.cluster_size > 1
+           THEN p.title || ' (+' || (g.cluster_size - 1) || ')'
+           ELSE p.title END AS title,
+       p.address_text, p.accepted_fractions, p.status,
+       ST_Y(g.center) AS lat, ST_X(g.center) AS lon, g.trust_score,
+       g.confirmations_count, g.issues_count,
+       ROW(current_database(), pg_postmaster_start_time(), pg_current_snapshot())::text
+           AS view_version
+FROM grouped g JOIN waste_points p ON p.id = g.representative
+ORDER BY g.cluster_size DESC, p.id
+"""
+
+
 async def bbox_account(
     connection: asyncpg.Connection, user_id: UUID, session_id: UUID, fingerprint: str
 ) -> asyncpg.Record:
@@ -61,50 +100,9 @@ async def bbox_points(
 
     params = (*bounds, include_unverified, trust, fractions)
     if zoom >= 13:
-        rows = await connection.fetch(
-            """
-            SELECT id, title, address_text, accepted_fractions, ST_Y(geom) AS lat,
-                   ST_X(geom) AS lon, status, trust_score, confirmations_count, issues_count,
-                   ROW(current_database(), pg_postmaster_start_time(), pg_current_snapshot())::text
-                       AS view_version
-            FROM waste_points WHERE geom && ST_MakeEnvelope($1, $2, $3, $4, 4326)
-                AND (status = 'active' OR ($5::boolean AND status = 'unverified'))
-                AND trust_score >= $6
-                AND ($7::waste_fraction_code[] IS NULL OR accepted_fractions && $7)
-            ORDER BY trust_score DESC, confirmations_count DESC, id LIMIT 500
-            """,
-            *params,
-        )
+        rows = await connection.fetch(BBOX_POINTS_SQL, *params)
     else:
-        rows = await connection.fetch(
-            """
-            WITH grouped AS (
-                SELECT (array_agg(id ORDER BY trust_score DESC, id))[1] AS representative,
-                       count(*) AS cluster_size, ST_Centroid(ST_Collect(geom)) AS center,
-                       round(avg(trust_score), 2) AS trust_score,
-                       sum(confirmations_count) AS confirmations_count,
-                       sum(issues_count) AS issues_count
-                FROM waste_points WHERE geom && ST_MakeEnvelope($1, $2, $3, $4, 4326)
-                    AND (status = 'active' OR ($5::boolean AND status = 'unverified'))
-                    AND trust_score >= $6
-                    AND ($7::waste_fraction_code[] IS NULL OR accepted_fractions && $7)
-                GROUP BY ST_SnapToGrid(geom, $8::double precision)
-                ORDER BY cluster_size DESC, representative LIMIT 350
-            )
-            SELECT p.id, CASE WHEN g.cluster_size > 1
-                       THEN p.title || ' (+' || (g.cluster_size - 1) || ')'
-                       ELSE p.title END AS title,
-                   p.address_text, p.accepted_fractions, p.status,
-                   ST_Y(g.center) AS lat, ST_X(g.center) AS lon, g.trust_score,
-                   g.confirmations_count, g.issues_count,
-                   ROW(current_database(), pg_postmaster_start_time(), pg_current_snapshot())::text
-                       AS view_version
-            FROM grouped g JOIN waste_points p ON p.id = g.representative
-            ORDER BY g.cluster_size DESC, p.id
-            """,
-            *params,
-            360.0 / 2 ** (zoom + 3),
-        )
+        rows = await connection.fetch(BBOX_CLUSTERS_SQL, *params, 360.0 / 2 ** (zoom + 3))
     points = [
         WastePointMapItem.model_validate(
             {field: row[field] for field in WastePointMapItem.model_fields}

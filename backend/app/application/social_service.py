@@ -62,10 +62,11 @@ async def list_accessories(
 
 
 async def equip_accessory(
-    connection: asyncpg.Connection, user_id: UUID, code: str | None
+    connection: asyncpg.Connection, user_id: UUID, code: str | None,
+    *, session_id: UUID | None = None,
 ) -> UserProfileResponse:
     async with connection.transaction():
-        await user_repo.lock_user(connection, user_id)
+        await user_repo.lock_user(connection, user_id, session_id=session_id)
         await require_active_account(connection, user_id)
         if code is not None:
             owned = await connection.fetchval(

@@ -769,11 +769,11 @@ def check_gate_8_tests(root: Path) -> tuple[str, list[str]]:
     test_dir = mobile_dir / "test"
     test_files = sorted(test_dir.rglob("*.dart")) if test_dir.is_dir() else []
 
-    if not test_files:
+    lib_dir = mobile_dir / "lib"
+    if not test_files and not (lib_dir / "core/database/outbox_dispatcher.dart").is_file():
         return "SKIP", ["No .dart files found under mobile/test"]
 
     errors: list[str] = []
-    lib_dir = mobile_dir / "lib"
 
     pbt_dir = test_dir / "pbt"
     if pbt_dir.is_dir():

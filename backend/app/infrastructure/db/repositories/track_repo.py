@@ -19,13 +19,77 @@ POINT_FIELDS = (
 )
 
 
+MATCH_TRACK_POINTS_SQL = """
+SELECT i.seq_no, p.seq_no AS existing,
+       ROW(p.recorded_at, p.lat, p.lon, p.accuracy_m, p.speed_mps, p.cumulative_steps)
+       IS NOT DISTINCT FROM
+       ROW(i.recorded_at, i.lat, i.lon, i.accuracy_m, i.speed_mps, i.cumulative_steps)
+       AS same
+FROM unnest($2::int[], $3::timestamptz[], $4::float8[], $5::float8[],
+            $6::real[], $7::real[], $8::int[])
+    AS i(seq_no, recorded_at, lat, lon, accuracy_m, speed_mps, cumulative_steps)
+LEFT JOIN gps_track_points p ON p.track_id = $1 AND p.seq_no = i.seq_no
+ORDER BY i.seq_no
+"""
+
+LAST_TRACK_POINT_SQL = """
+SELECT seq_no, recorded_at, cumulative_steps FROM gps_track_points
+WHERE track_id = $1 ORDER BY seq_no DESC LIMIT 1
+"""
+
+TRACK_INTERVAL_DISTANCES_SQL = """
+WITH incoming AS (
+    SELECT seq_no, ST_SetSRID(ST_MakePoint(lon, lat), 4326) AS geom
+    FROM unnest($2::int[], $3::float8[], $4::float8[]) AS p(seq_no, lon, lat)
+), intervals AS (
+    SELECT seq_no, geom, lag(geom, 1, (
+        SELECT geom FROM gps_track_points WHERE track_id = $1
+        ORDER BY seq_no DESC LIMIT 1
+    )) OVER (ORDER BY seq_no) AS prev_geom FROM incoming
+)
+SELECT COALESCE(
+    round(ST_Distance(geom::geography, prev_geom::geography)::numeric, 2), 0
+) AS distance_m FROM intervals ORDER BY seq_no
+"""
+
+INSERT_TRACK_POINTS_SQL = """
+INSERT INTO gps_track_points (
+    track_id, user_id, seq_no, recorded_at, lat, lon, accuracy_m, speed_mps,
+    cumulative_steps, delta_steps, delta_distance_m, motion_class
+)
+SELECT $1, $2, i.seq_no, i.recorded_at, i.lat, i.lon, i.accuracy_m, i.speed_mps,
+       i.steps, i.delta_steps, i.distance::numeric, i.motion::track_point_motion_class
+FROM unnest($3::int[], $4::timestamptz[], $5::float8[], $6::float8[],
+            $7::real[], $8::real[], $9::int[], $10::int[], $11::float8[], $12::text[])
+    AS i(seq_no, recorded_at, lat, lon, accuracy_m, speed_mps, steps,
+         delta_steps, distance, motion)
+"""
+
+REFRESH_TRACK_SQL = """
+UPDATE gps_daily_tracks SET point_count = totals.points,
+    total_gps_walking_distance_m = totals.walking_distance,
+    route_geom = CASE WHEN ST_IsValid(totals.route) THEN totals.route ELSE NULL END,
+    updated_at = now()
+FROM (
+    SELECT count(*)::int AS points,
+           COALESCE(sum(delta_distance_m) FILTER (WHERE motion_class = 'walking'), 0)
+               AS walking_distance,
+           CASE WHEN count(*) FILTER (WHERE motion_class <> 'unknown') >= 2 THEN
+               ST_MakeLine(geom ORDER BY seq_no) FILTER (WHERE motion_class <> 'unknown')
+           END AS route
+    FROM gps_track_points WHERE track_id = $1
+) totals WHERE id = $1
+"""
+
+
 async def route_context(
     connection: asyncpg.Connection, user_id: UUID, activity_date: date
 ) -> asyncpg.Record:
     user = await connection.fetchrow(
         """
         SELECT u.id, u.stride_length_cm, u.points_balance, u.requires_formal_phone,
-               u.is_152fz_consent_active,
+               u.is_152fz_consent_active, u.daily_co2_goal_grams, u.last_active_local_date,
+               u.current_streak_days, u.longest_streak_days, u.streak_freeze_count,
                COALESCE((SELECT timezone_offset_minutes FROM daily_step_summaries
                          WHERE user_id = u.id AND activity_date = $2),
                         (SELECT timezone_offset_minutes FROM daily_step_summaries
@@ -84,18 +148,7 @@ async def find_new_points(
     # Compare float4 inputs after a cast so precision in stored sensor readings
     # does not make an identical network retry appear to have different data.
     rows = await connection.fetch(
-        """
-        SELECT i.seq_no, p.seq_no AS existing,
-               ROW(p.recorded_at, p.lat, p.lon, p.accuracy_m, p.speed_mps, p.cumulative_steps)
-               IS NOT DISTINCT FROM
-               ROW(i.recorded_at, i.lat, i.lon, i.accuracy_m, i.speed_mps, i.cumulative_steps)
-               AS same
-        FROM unnest($2::int[], $3::timestamptz[], $4::float8[], $5::float8[],
-                    $6::real[], $7::real[], $8::int[])
-            AS i(seq_no, recorded_at, lat, lon, accuracy_m, speed_mps, cumulative_steps)
-        LEFT JOIN gps_track_points p ON p.track_id = $1 AND p.seq_no = i.seq_no
-        ORDER BY i.seq_no
-        """,
+        MATCH_TRACK_POINTS_SQL,
         track_id,
         *_point_arrays(points),
     )
@@ -108,10 +161,7 @@ async def classify_points(
     connection: asyncpg.Connection, track_id: UUID, points: list[GpsTrackPointInput]
 ) -> list[GpsTrackPointClassified]:
     previous = await connection.fetchrow(
-        """
-        SELECT seq_no, recorded_at, cumulative_steps FROM gps_track_points
-        WHERE track_id = $1 ORDER BY seq_no DESC LIMIT 1
-        """,
+        LAST_TRACK_POINT_SQL,
         track_id,
     )
     expected = previous["seq_no"] + 1 if previous else 0
@@ -121,20 +171,7 @@ async def classify_points(
     ):
         raise CatalogException("VALIDATION_ERROR")
     distances = await connection.fetch(
-        """
-        WITH incoming AS (
-            SELECT seq_no, ST_SetSRID(ST_MakePoint(lon, lat), 4326) AS geom
-            FROM unnest($2::int[], $3::float8[], $4::float8[]) AS p(seq_no, lon, lat)
-        ), intervals AS (
-            SELECT seq_no, geom, lag(geom, 1, (
-                SELECT geom FROM gps_track_points WHERE track_id = $1
-                ORDER BY seq_no DESC LIMIT 1
-            )) OVER (ORDER BY seq_no) AS prev_geom FROM incoming
-        )
-        SELECT COALESCE(
-            round(ST_Distance(geom::geography, prev_geom::geography)::numeric, 2), 0
-        ) AS distance_m FROM intervals ORDER BY seq_no
-        """,
+        TRACK_INTERVAL_DISTANCES_SQL,
         track_id,
         [point.seq_no for point in points],
         [point.lon for point in points],
@@ -151,7 +188,7 @@ async def classify_points(
             try:
                 interval = classify_interval(
                     float(distance),
-                    (point.recorded_at - previous_at).total_seconds(),
+                    max(1.0, (point.recorded_at - previous_at).total_seconds()),
                     point.accuracy_m,
                     previous_steps,
                     point.cumulative_steps,
@@ -176,18 +213,7 @@ async def append_track_points(
     points: list[GpsTrackPointClassified],
 ) -> None:
     await connection.execute(
-        """
-        INSERT INTO gps_track_points (
-            track_id, user_id, seq_no, recorded_at, lat, lon, accuracy_m, speed_mps,
-            cumulative_steps, delta_steps, delta_distance_m, motion_class
-        )
-        SELECT $1, $2, i.seq_no, i.recorded_at, i.lat, i.lon, i.accuracy_m, i.speed_mps,
-               i.steps, i.delta_steps, i.distance::numeric, i.motion::track_point_motion_class
-        FROM unnest($3::int[], $4::timestamptz[], $5::float8[], $6::float8[],
-                    $7::real[], $8::real[], $9::int[], $10::int[], $11::float8[], $12::text[])
-            AS i(seq_no, recorded_at, lat, lon, accuracy_m, speed_mps, steps,
-                 delta_steps, distance, motion)
-        """,
+        INSERT_TRACK_POINTS_SQL,
         track_id,
         user_id,
         *_point_arrays(points),
@@ -196,20 +222,6 @@ async def append_track_points(
         [point.motion_class for point in points],
     )
     await connection.execute(
-        """
-        UPDATE gps_daily_tracks SET point_count = totals.points,
-            total_gps_walking_distance_m = totals.walking_distance,
-            route_geom = CASE WHEN ST_IsValid(totals.route) THEN totals.route ELSE NULL END,
-            updated_at = now()
-        FROM (
-            SELECT count(*)::int AS points,
-                   COALESCE(sum(delta_distance_m) FILTER (WHERE motion_class = 'walking'), 0)
-                       AS walking_distance,
-                   CASE WHEN count(*) FILTER (WHERE motion_class <> 'unknown') >= 2 THEN
-                       ST_MakeLine(geom ORDER BY seq_no) FILTER (WHERE motion_class <> 'unknown')
-                   END AS route
-            FROM gps_track_points WHERE track_id = $1
-        ) totals WHERE id = $1
-        """,
+        REFRESH_TRACK_SQL,
         track_id,
     )

@@ -10,6 +10,7 @@ from app.api.v1.auth_models import UserProfileResponse
 from app.api.v1.ledger_shop_models import CartLineInput, ShopOrderDetail, ShopOrderListResponse
 from app.application.activity_service import assert_activity_access
 from app.application.social_service import MOSCOW_OFFSET
+from app.infrastructure.db.idempotency import claim_in_flight_key
 from app.infrastructure.db.repositories import badge_repo, ledger_shop_repo, social_repo, user_repo
 from app.infrastructure.db.transactions import retry_deadlock
 
@@ -54,7 +55,7 @@ async def list_orders(
 
 
 async def _existing_order(
-    connection: asyncpg.Connection, user: asyncpg.Record, key: UUID, quantities: Counter[UUID]
+    connection: asyncpg.Connection, user: asyncpg.Record, key: UUID, cart: list[CartLineInput]
 ) -> ShopOrderDetail | None:
     row = await connection.fetchrow(
         """
@@ -73,10 +74,9 @@ async def _existing_order(
     if row["user_id"] != user["id"]:
         raise CatalogException("IDEMPOTENCY_KEY_PAYLOAD_MISMATCH")
     lines = (await ledger_shop_repo.load_order_lines(connection, [row["id"]]))[row["id"]]
-    purchased: Counter[UUID] = Counter()
-    for line in lines:
-        purchased[line.shop_item_id] += line.quantity
-    if purchased != quantities:
+    purchased = Counter((line.shop_item_id, line.quantity) for line in lines)
+    submitted = Counter((line.shop_item_id, line.quantity) for line in cart)
+    if purchased != submitted:
         raise CatalogException("IDEMPOTENCY_KEY_PAYLOAD_MISMATCH")
     return ledger_shop_repo.order_detail(row, lines, user["points_balance"])
 
@@ -179,16 +179,20 @@ async def _fulfill_virtual_items(
 
 
 async def _checkout(
-    connection: asyncpg.Connection, user_id: UUID, key: UUID, cart: list[CartLineInput]
+    connection: asyncpg.Connection,
+    user_id: UUID,
+    key: UUID,
+    cart: list[CartLineInput],
+    *,
+    session_id: UUID | None = None,
 ) -> ShopOrderDetail:
     quantities: Counter[UUID] = Counter()
     for line in cart:
         quantities[line.shop_item_id] += line.quantity
-    await user_repo.lock_user(connection, user_id)
+    await claim_in_flight_key(connection, key)
+    await user_repo.lock_user(connection, user_id, session_id=session_id)
     user = await shop_user(connection, user_id)
-    # Use the same lock as step sync for the globally unique ledger key.
-    await connection.execute("SELECT pg_advisory_xact_lock(hashtextextended($1, 1))", str(key))
-    existing_order = await _existing_order(connection, user, key, quantities)
+    existing_order = await _existing_order(connection, user, key, cart)
     if existing_order is not None:
         return existing_order
 
@@ -231,15 +235,28 @@ async def _checkout(
 
 @retry_deadlock
 async def checkout(
-    connection: asyncpg.Connection, user_id: UUID, key: UUID, cart: list[CartLineInput]
+    connection: asyncpg.Connection,
+    user_id: UUID,
+    key: UUID,
+    cart: list[CartLineInput],
+    *,
+    session_id: UUID | None = None,
 ) -> ShopOrderDetail:
     async with connection.transaction():
-        return await _checkout(connection, user_id, key, cart)
+        return await _checkout(connection, user_id, key, cart, session_id=session_id)
 
 
-async def activate_freeze(connection: asyncpg.Connection, user_id: UUID) -> UserProfileResponse:
+async def activate_freeze(
+    connection: asyncpg.Connection,
+    user_id: UUID,
+    *,
+    key: UUID | None = None,
+    session_id: UUID | None = None,
+) -> UserProfileResponse:
     async with connection.transaction():
-        await user_repo.lock_user(connection, user_id)
+        if key is not None:
+            await claim_in_flight_key(connection, key)
+        await user_repo.lock_user(connection, user_id, session_id=session_id)
         user = await shop_user(connection, user_id)
         if user["streak_freeze_count"] <= 0:
             raise CatalogException("STREAK_FREEZE_NONE_AVAILABLE")

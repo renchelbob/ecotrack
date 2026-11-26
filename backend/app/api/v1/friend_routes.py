@@ -55,7 +55,9 @@ async def leaderboard(principal: AuthUser, connection: Db) -> FriendsLeaderboard
 async def send_request(
     body: SendFriendRequestPayload, key: MutationKey, principal: AuthUser, connection: Db
 ) -> FriendshipRecord:
-    return await friends_service.send_request(connection, principal.user_id, key, body.friend_code)
+    return await friends_service.send_request(
+        connection, principal.user_id, key, body.friend_code, session_id=principal.session_id
+    )
 
 
 @router.patch(
@@ -70,7 +72,9 @@ async def reply(
     principal: AuthUser,
     connection: Db,
 ) -> FriendshipRecord:
-    return await friends_service.reply(connection, principal.user_id, friendship_id, body.action)
+    return await friends_service.reply(
+        connection, principal.user_id, friendship_id, body.action, session_id=principal.session_id
+    )
 
 
 @router.delete(
@@ -82,7 +86,9 @@ async def reply(
 async def remove(
     friend_user_id: UUID, _key: MutationKey, principal: AuthUser, connection: Db
 ) -> Response:
-    await friends_service.remove(connection, principal.user_id, friend_user_id)
+    await friends_service.remove(
+        connection, principal.user_id, friend_user_id, session_id=principal.session_id
+    )
     return Response(status_code=204)
 
 
@@ -99,4 +105,6 @@ async def nudge(
     settings: AppSettings,
 ) -> WakeupNudgeResponse:
     provider = _provider(settings.push_provider_backend, settings.fcm_service_account_json_path)
-    return await friends_service.nudge(connection, principal.user_id, friend_user_id, key, provider)
+    return await friends_service.nudge(
+        connection, principal.user_id, friend_user_id, key, provider, session_id=principal.session_id
+    )

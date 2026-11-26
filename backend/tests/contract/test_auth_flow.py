@@ -18,9 +18,15 @@ from app.api import dependencies
 from app.api.v1 import auth_routes
 from app.api.v1.ledger_shop_models import CartLineInput
 from app.api.v1.map_rso_models import WastePointsBboxResponse
+from app.api.errors import CatalogException
+from app.api.v1.activity_models import SyncDailyStepsRequest
+from app.application.activity_service import sync_steps
+from app.application.auth_service import AccessSession, Principal
 from app.application.ledger_shop_service import checkout
 from app.application.social_service import MOSCOW_OFFSET
 from app.config import Settings
+from app.infrastructure.db.pool import configure_connection
+from app.infrastructure.db.repositories.user_repo import load_profile, lock_user
 from app.infrastructure.oauth.yandex_provider import OAuthIdentity
 from app.main import app
 
@@ -1044,3 +1050,253 @@ def test_recycling_point_report_updates_trust_and_rewards_once(oauth_client: Tes
                 await connection.close()
 
         asyncio.run(remove_point())
+
+
+def test_consent_audit_uses_peer_and_ignores_untrusted_forwarding(oauth_client: TestClient) -> None:
+    session = exchange(oauth_client)
+    headers = {
+        "Authorization": f"Bearer {session['access_token']}",
+        "Idempotency-Key": str(uuid7()),
+        "User-Agent": "ecotrack-consent-test",
+        "X-Forwarded-For": "198.51.100.22",
+    }
+    response = oauth_client.post(
+        "/api/v1/users/me/consents",
+        headers=headers,
+        json={
+            "policy_version": "1.0.0-2026",
+            "action": "granted",
+            "consent_scope": {
+                "personal_data_152fz": True,
+                "health_steps_sensor": True,
+                "background_geolocation": False,
+            },
+        },
+    )
+    assert response.status_code == 201, response.text
+
+    user = session["user"]
+    assert isinstance(user, dict)
+
+    async def check() -> None:
+        connection = await asyncpg.connect(os.environ["TEST_DATABASE_URL"])
+        try:
+            rows = await connection.fetch(
+                """
+                SELECT host(ip_address) AS ip, user_agent FROM fz152_consent_journal
+                WHERE user_id = $1 ORDER BY recorded_at, id
+                """,
+                UUID(str(user["id"])),
+            )
+            assert len(rows) == 2
+            assert rows[0]["user_agent"] == "testclient"
+            assert rows[1]["user_agent"] == "ecotrack-consent-test"
+            # TestClient's synthetic peer has no IP address.
+            assert rows[1]["ip"] is None
+        finally:
+            await connection.close()
+
+    asyncio.run(check())
+
+
+def test_daily_step_ceiling_records_reason_without_reward(oauth_client: TestClient) -> None:
+    session = exchange(oauth_client)
+    headers = {
+        "Authorization": f"Bearer {session['access_token']}",
+        "Idempotency-Key": str(uuid7()),
+    }
+    today = datetime.now(MOSCOW_OFFSET).date().isoformat()
+    response = oauth_client.put(
+        "/api/v1/activity/steps/daily",
+        headers=headers,
+        json={"activity_date": today, "timezone_offset_minutes": 180, "raw_sensor_steps": 100001},
+    )
+    assert response.status_code == 422
+    assert response.json()["error_code"] == "ANTIFRAUD_DAILY_STEP_CAP_EXCEEDED"
+    detail = oauth_client.get(f"/api/v1/activity/daily/{today}", headers=headers)
+    assert detail.status_code == 200
+    summary = detail.json()["summary"]
+    assert summary["antifraud_flagged"] is True
+    assert summary["antifraud_reason"] == "DAILY_CAP_100K_EXCEEDED"
+    assert summary["validated_steps"] == summary["points_awarded_for_day"] == 0
+
+
+def test_valid_uuid_of_wrong_version_is_rejected(oauth_client: TestClient) -> None:
+    session = exchange(oauth_client)
+    response = oauth_client.put(
+        "/api/v1/activity/steps/daily",
+        headers={
+            "Authorization": f"Bearer {session['access_token']}",
+            "Idempotency-Key": str(uuid4()),
+        },
+        json={"activity_date": "2026-01-01", "timezone_offset_minutes": 0, "raw_sensor_steps": 1},
+    )
+    assert response.status_code == 400
+    assert response.json()["error_code"] == "INVALID_IDEMPOTENCY_KEY"
+
+
+@pytest.mark.parametrize("change", ["logout", "consent"])
+def test_step_mutation_rechecks_state_after_waiting_for_user_lock(
+    oauth_client: TestClient, change: str
+) -> None:
+    session = exchange(oauth_client)
+    user = session["user"]
+    assert isinstance(user, dict)
+    user_id = UUID(str(user["id"]))
+
+    async def race() -> None:
+        dsn = os.environ["TEST_DATABASE_URL"]
+        async with asyncio.TaskGroup() as group:
+            blocker = await asyncpg.connect(dsn)
+            worker = await asyncpg.connect(dsn)
+            observer = await asyncpg.connect(dsn)
+            try:
+                await configure_connection(worker)
+                session_id = await blocker.fetchval(
+                    "SELECT id FROM auth_refresh_sessions WHERE user_id = $1", user_id
+                )
+                access = AccessSession(Principal(user_id, session_id), FINGERPRINT)
+                body = SyncDailyStepsRequest(
+                    activity_date=datetime.now(UTC).date(),
+                    timezone_offset_minutes=0,
+                    raw_sensor_steps=250,
+                )
+                async with blocker.transaction():
+                    await lock_user(blocker, user_id)
+
+                    async def submit() -> None:
+                        expected = {
+                            "logout": "AUTH_TOKEN_INVALID", "consent": "FZ152_CONSENT_REVOKED"
+                        }[change]
+                        with pytest.raises(CatalogException, match=expected):
+                            await sync_steps(worker, user_id, uuid7(), body, session=access)
+
+                    task = group.create_task(submit())
+                    async with asyncio.timeout(5):
+                        while await observer.fetchval(
+                            "SELECT wait_event_type FROM pg_stat_activity WHERE pid = $1",
+                            worker.get_server_pid(),
+                        ) != "Lock":
+                            await asyncio.sleep(0.01)
+                    if change == "logout":
+                        await blocker.execute(
+                            "UPDATE auth_refresh_sessions SET revoked_at = now() WHERE id = $1",
+                            session_id,
+                        )
+                    else:
+                        await blocker.execute(
+                            "UPDATE users SET is_152fz_consent_active = false WHERE id = $1",
+                            user_id,
+                        )
+                await task
+                assert await observer.fetchval(
+                    "SELECT count(*) FROM daily_step_summaries WHERE user_id = $1", user_id
+                ) == 0
+            finally:
+                await observer.close()
+                await worker.close()
+                await blocker.close()
+
+    asyncio.run(race())
+
+
+def test_profile_uses_local_date_at_midnight(oauth_client: TestClient) -> None:
+    session = exchange(oauth_client)
+    user = session["user"]
+    assert isinstance(user, dict)
+
+    async def check() -> None:
+        connection = await asyncpg.connect(os.environ["TEST_DATABASE_URL"])
+        try:
+            await configure_connection(connection)
+            async with connection.transaction():
+                now = await connection.fetchval("SELECT now()")
+                moscow_date = now.astimezone(MOSCOW_OFFSET).date()
+                offset = next(
+                    minutes for minutes in (-720, 840)
+                    if (now + timedelta(minutes=minutes)).date() != moscow_date
+                )
+                local_date = (now + timedelta(minutes=offset)).date()
+                user_id = UUID(str(user["id"]))
+                await connection.execute(
+                    """
+                    INSERT INTO daily_step_summaries (
+                        user_id, activity_date, timezone_offset_minutes, auto_default_co2_saved_grams
+                    )
+                    SELECT $1, $2, $4, daily_co2_goal_grams FROM users WHERE id = $1
+                    UNION ALL SELECT $1, $3, $4, 0
+                    """,
+                    user_id, local_date, moscow_date, offset,
+                )
+                profile = await load_profile(connection, user_id)
+                assert profile.mascot.mood == "thriving"
+        finally:
+            await connection.close()
+
+    asyncio.run(check())
+
+
+def test_concurrent_retries_with_same_key_do_not_duplicate_steps_or_gps(
+    oauth_client: TestClient,
+) -> None:
+    session = exchange(oauth_client)
+    bearer = {"Authorization": f"Bearer {session['access_token']}"}
+    consent = oauth_client.post(
+        "/api/v1/users/me/consents",
+        headers={**bearer, "Idempotency-Key": str(uuid7())},
+        json={
+            "policy_version": "1.0.0-2026",
+            "action": "granted",
+            "consent_scope": {
+                "personal_data_152fz": True,
+                "health_steps_sensor": True,
+                "background_geolocation": True,
+            },
+        },
+    )
+    assert consent.status_code == 201, consent.text
+    moment = datetime.now(MOSCOW_OFFSET)
+    today = moment.date().isoformat()
+    step_headers = {**bearer, "Idempotency-Key": str(uuid7())}
+    step_payload = {
+        "activity_date": today, "timezone_offset_minutes": 180, "raw_sensor_steps": 750
+    }
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        calls = [
+            executor.submit(
+                oauth_client.put, "/api/v1/activity/steps/daily",
+                headers=step_headers, json=step_payload,
+            )
+            for _ in range(2)
+        ]
+        steps = [call.result(timeout=10) for call in calls]
+    assert {reply.status_code for reply in steps} <= {200, 409}
+    assert sum(
+        reply.json()["points_delta_applied"] for reply in steps if reply.is_success
+    ) == 7
+    for reply in steps:
+        if reply.status_code == 409:
+            assert reply.json()["error_code"] == "IDEMPOTENCY_IN_FLIGHT"
+
+    gps_headers = {**bearer, "Idempotency-Key": str(uuid7())}
+    gps_payload = {
+        "activity_date": today,
+        "points": [
+            {
+                "seq_no": 0, "recorded_at": moment.isoformat(),
+                "lat": 55.7, "lon": 37.6, "accuracy_m": 5, "speed_mps": 0, "cumulative_steps": 0,
+            },
+        ],
+    }
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        calls = [
+            executor.submit(
+                oauth_client.post, "/api/v1/activity/tracks/points:batch",
+                headers=gps_headers, json=gps_payload,
+            )
+            for _ in range(2)
+        ]
+        gps = [call.result(timeout=10) for call in calls]
+    assert [reply.status_code for reply in gps] == [200, 200]
+    assert sorted(reply.json()["ingested_count"] for reply in gps) == [0, 1]
+    assert {reply.json()["total_point_count"] for reply in gps} == {1}

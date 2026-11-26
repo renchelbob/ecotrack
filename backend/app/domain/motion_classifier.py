@@ -1,6 +1,8 @@
 from dataclasses import dataclass
 from typing import Literal
 
+import icontract
+
 MotionClass = Literal["unknown", "walking", "indoor_pacing", "vehicle_suspected", "stationary"]
 
 
@@ -14,6 +16,18 @@ class ClassifiedInterval:
     motion_class: MotionClass
 
 
+@icontract.require(lambda distance_m: distance_m >= 0)
+@icontract.require(lambda elapsed_seconds: elapsed_seconds >= 1)
+@icontract.require(lambda accuracy_m: accuracy_m >= 0)
+@icontract.require(
+    lambda previous_steps, cumulative_steps: previous_steps >= 0 and cumulative_steps >= 0
+)
+@icontract.ensure(lambda result: result.delta_steps >= 0)
+@icontract.ensure(lambda accuracy_m, result: accuracy_m <= 65 or result.motion_class == "unknown")
+@icontract.ensure(
+    lambda distance_m, result: result.motion_class != "walking"
+    or (result.delta_steps >= 4 and distance_m >= 6)
+)
 def classify_interval(
     distance_m: float,
     elapsed_seconds: float,
@@ -26,7 +40,7 @@ def classify_interval(
         if cumulative_steps >= previous_steps
         else cumulative_steps
     )
-    elapsed = max(1.0, elapsed_seconds)
+    elapsed = elapsed_seconds
     speed = distance_m / elapsed
     stride = distance_m / steps if steps else float("inf")
     if accuracy_m > 65:

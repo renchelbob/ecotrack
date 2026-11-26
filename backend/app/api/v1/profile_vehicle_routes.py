@@ -1,8 +1,8 @@
 from enum import Enum
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Request
 
-from app.api.dependencies import AppSettings, AuthUser, Db, MutationKey
+from app.api.dependencies import AppSettings, AuthUser, Db, MutationKey, consent_audit_context
 from app.api.errors import CatalogException, ErrorResponse
 from app.api.v1 import API_PREFIX
 from app.api.v1.auth_models import (
@@ -42,7 +42,9 @@ async def delete_profile(
     connection: Db,
     settings: AppSettings,
 ) -> AccountDeletionReceiptResponse:
-    return await erase_account(connection, settings, principal.user_id, body.deletion_reason)
+    return await erase_account(
+        connection, settings, principal.user_id, body.deletion_reason, session_id=principal.session_id
+    )
 
 
 @router.patch(
@@ -56,7 +58,7 @@ async def update_profile(
 ) -> UserProfileResponse:
     user_id = principal.user_id
     async with connection.transaction():
-        await lock_user(connection, user_id)
+        await lock_user(connection, user_id, session_id=principal.session_id)
         active = await connection.fetchval(
             "SELECT is_152fz_consent_active FROM users WHERE id = $1", user_id
         )
@@ -137,16 +139,22 @@ async def consent_history(principal: AuthUser, connection: Db) -> ConsentHistory
     responses={code: {"model": ErrorResponse} for code in (400, 401, 409, 422)},
 )
 async def record_consent(
-    body: RecordConsentRequest, key: MutationKey, principal: AuthUser, connection: Db
+    body: RecordConsentRequest,
+    key: MutationKey,
+    principal: AuthUser,
+    connection: Db,
+    request: Request,
 ) -> ConsentJournalEntry:
+    peer, agent = consent_audit_context(request)
     scope = body.consent_scope.model_dump()
     user_id = principal.user_id
     async with connection.transaction():
-        await lock_user(connection, user_id)
+        await lock_user(connection, user_id, session_id=principal.session_id)
         row = await connection.fetchrow(
             """
-            INSERT INTO fz152_consent_journal (id, user_id, policy_version, action, consent_scope)
-            VALUES ($1, $2, $3, $4::consent_action_type, $5::jsonb)
+            INSERT INTO fz152_consent_journal
+                (id, user_id, policy_version, action, consent_scope, ip_address, user_agent, recorded_at)
+            VALUES ($1, $2, $3, $4::consent_action_type, $5::jsonb, $6::inet, $7, clock_timestamp())
             ON CONFLICT (id) DO NOTHING
             RETURNING id, policy_version, action, consent_scope, recorded_at
             """,
@@ -155,6 +163,8 @@ async def record_consent(
             body.policy_version,
             body.action,
             scope,
+            peer,
+            agent,
         )
         if row is None:
             existing = await connection.fetchrow(
