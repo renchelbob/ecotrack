@@ -1,9 +1,6 @@
 # backend/AGENTS.md — Backend, PostGIS & ETL Playbook (Developer 1)
 
-> **Workspace Scope**: `/backend/**`, `/scripts/**`, and **3 Delegated High-Complexity Mobile Modules**:
-> - `mobile/lib/features/mascot/presentation/widgets/mascot_vector_painter.dart`
-> - `mobile/lib/core/database/outbox_dispatcher.dart`
-> - `mobile/lib/features/map/presentation/screens/map_activity_screen.dart`
+> **Workspace Scope**: `/backend/**`, `/scripts/**`, `/docker-compose.yml`, `/Makefile` (backend targets) — strictly backend/data/infra; do not author or modify files under `/mobile/**`.
 > **Read-Only Contracts**: `/contracts/schema.sql`, `/contracts/openapi.yaml`, `/contracts/error_catalog.json`
 > **Relevant Specs**: `specs/02-domain-math-and-algorithms.md`, `specs/03-backend-architecture-and-152fz.md`, `specs/04-postgis-and-rso-data-pipeline.md`, `specs/05-mobile-flutter-architecture.md`, `specs/06-offline-sync-and-sensors.md`, `specs/07-devops-docker-and-vps-deployment.md`, `specs/08-verification-and-quality-gates.md`
 

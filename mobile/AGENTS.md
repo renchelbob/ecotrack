@@ -1,11 +1,10 @@
 # mobile/AGENTS.md — Flutter Client & Offline Engine Playbook (Developer 2)
 
-> **Workspace Scope**: `/mobile/**` (All Flutter client features, routing, BLoCs, and UI)
-> **Pre-Delivered High-Complexity Modules (Authored by Developer 1)**:
-> 1. `mobile/lib/features/home_mascot/presentation/widgets/mascot_vector_painter.dart` (fox mascot Canvas geometry & accessories)
-> 2. `mobile/lib/core/database/outbox_dispatcher.dart` (offline mutation outbox FSM & causal barrier)
-> 3. `mobile/lib/features/map_activity/presentation/screens/map_activity_screen.dart` (dual-mode `flutter_map` with `LayerHitNotifier`)
-> Developer 2 consumes these 3 pre-tested components as standalone building blocks and integrates them into the UI, BLoCs, and router.
+> **Workspace Scope**: `/mobile/**` (All Flutter client features, routing, BLoCs, offline outbox, sensors, mascot painter, map screen, and UI — owned end-to-end by Developer 2)
+> **Core Module Canonical Paths (Owned by Developer 2)**:
+> 1. `mobile/lib/features/home_mascot/presentation/widgets/mascot_vector_painter.dart` (transparent wireframe fox mascot Canvas geometry matching `screens/*.png` & accessories)
+> 2. `mobile/lib/core/database/outbox_dispatcher.dart` (offline mutation outbox FSM with CAS claim, persisted causal barrier, and backoff)
+> 3. `mobile/lib/features/map_activity/presentation/screens/map_activity_screen.dart` (dual-mode `flutter_map` with `LayerHitNotifier`, canonical RSO thresholds, and SQLite tile cache)
 > **Locked Visual Reference Canon (Read-Only)**: `/screens/` (`wireframes.png`, `07..09`, `14..23`)
 > **Read-Only Contracts**: `/contracts/client_sqlite_schema.sql`, `/contracts/openapi.yaml`, `/contracts/error_catalog.json`
 > **Relevant Specs & Skills**: `specs/01-product-and-ux-spec.md`, `specs/02-domain-math-and-algorithms.md`, `specs/05-mobile-flutter-architecture.md`, `specs/06-offline-sync-and-sensors.md`, `specs/08-verification-and-quality-gates.md`, `.agents/skills/`
@@ -59,9 +58,10 @@ mobile/
 │   │   │   └── result.dart                   # Sealed Result<T, AppError> (Ok / Err)
 │   │   ├── database/
 │   │   │   ├── sqlite_database.dart          # sqflite/sqlite3 WAL initializer & transaction runner
-│   │   │   └── outbox_dispatcher.dart        # (Authored by Developer 1) Exponential backoff worker for offline_mutation_outbox
+│   │   │   └── outbox_dispatcher.dart        # Exponential backoff worker for offline_mutation_outbox (CAS claim & causal barrier)
 │   │   ├── network/
 │   │   │   ├── api_client.dart               # Dio ^5.x wrapper returning Future<Result<T, AppError>>
+│   │   │   ├── auth_header_interceptor.dart  # Injects Bearer access token
 │   │   │   ├── auth_refresh_interceptor.dart # QueuedInterceptorsWrapper single-flight JWT refresh lock
 │   │   │   └── idempotency_interceptor.dart  # Injects UUIDv7 Idempotency-Key header on mutations
 │   │   ├── router/
@@ -90,13 +90,13 @@ mobile/
 │       │   ├── data/
 │       │   └── presentation/
 │       │       └── screens/
-│       │           └── map_activity_screen.dart  # (Authored by Developer 1) Dual-mode flutter_map + LayerHitNotifier
+│       │           └── map_activity_screen.dart  # Dual-mode flutter_map + LayerHitNotifier (owned by Developer 2)
 │       ├── home_mascot/                      # Tab 3: Balance, streak, interactive CustomPainter mascot, Today cards
 │       │   ├── domain/
 │       │   ├── data/
 │       │   └── presentation/
 │       │       └── widgets/
-│       │           └── mascot_vector_painter.dart # (Authored by Developer 1) Fox mascot Canvas geometry & accessories
+│       │           └── mascot_vector_painter.dart # Transparent wireframe fox mascot Canvas geometry & accessories (owned by Developer 2)
 │       ├── shop/                             # Tab 4: Fictional partner catalog, cart, QR/promo orders, virtual items
 │       │   ├── domain/
 │       │   ├── data/
@@ -112,8 +112,8 @@ mobile/
 ```
 
 ### Static Layer Import Rules (Enforced by `import_lint ^2.0.0`)
-1. `features/*/presentation/**` **MUST NOT** import `package:dio/**`, `package:sqflite/**`, `package:sqlite3/**`, `package:geolocator/**`, `package:health/**`, `package:pedometer/**`, `package:firebase_messaging/**`, `package:flutter_secure_storage/**`, `core/network/**`, `core/database/**`, `core/sensors/**`, or any file in `features/*/data/**`.
-2. `features/*/domain/**` **MUST NOT** import `package:flutter/**`, `package:dio/**`, `package:sqflite/**`, `package:sqlite3/**`, `core/network/**`, `core/database/**`, `features/*/data/**`, or `features/*/presentation/**`.
+1. `features/*/presentation/**` **MUST NOT** import `package:dio/**`, `package:sqflite/**`, `package:sqlite3/**`, `package:geolocator/**`, `package:health/**`, `package:pedometer/**`, `package:firebase_messaging/**`, `package:flutter_secure_storage/**`, `core/network/**`, `core/database/**`, `core/sensors/**`, or any file in `features/*/data/**`. (Note: Flutter 3.47's decoupled `package:material_ui/material_ui.dart` and `package:cupertino_ui/cupertino_ui.dart` are allowed in `presentation/`, `core/theme/`, and `app.dart`/`main.dart` alongside `package:flutter/material.dart`.)
+2. `features/*/domain/**` **MUST NOT** import `package:flutter/**`, `package:material_ui/**`, `package:cupertino_ui/**`, `package:dio/**`, `package:sqflite/**`, `package:sqlite3/**`, `core/network/**`, `core/database/**`, `features/*/data/**`, or `features/*/presentation/**`.
 3. Cross-feature imports are allowed ONLY between `domain/` layers or via `core/router/app_router.dart`.
 
 ---
