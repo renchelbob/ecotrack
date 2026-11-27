@@ -21,10 +21,22 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:url_launcher/url_launcher.dart';
 
-const String _defaultMapTileUrlTemplate = String.fromEnvironment(
+const String _defaultCartoApiKey = String.fromEnvironment('CARTO_API_KEY');
+const String _envMapTileUrlTemplate = String.fromEnvironment(
   'MAP_TILE_URL_TEMPLATE',
-  defaultValue: 'https://basemaps.cartocdn.com/light_all/{z}/{x}/{y}@2x.png',
 );
+const String _baseCartoLightUrl =
+    'https://basemaps.cartocdn.com/light_all/{z}/{x}/{y}@2x.png';
+const String _baseCartoVoyagerUrl =
+    'https://basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png';
+final String _defaultMapTileUrlTemplate = _envMapTileUrlTemplate.isNotEmpty
+    ? _envMapTileUrlTemplate
+    : (_defaultCartoApiKey.isNotEmpty
+          ? '$_baseCartoLightUrl?key=$_defaultCartoApiKey'
+          : _baseCartoLightUrl);
+final String _fallbackMapTileUrlTemplate = _defaultCartoApiKey.isNotEmpty
+    ? '$_baseCartoVoyagerUrl?key=$_defaultCartoApiKey'
+    : _baseCartoVoyagerUrl;
 const String _mapTileUserAgent = 'EcoTrackMobile/1.0 (https://ecotrack.ru)';
 
 final class const MapActivityScreen({
@@ -576,6 +588,7 @@ final class const _MapViewportStack({
             children: [
               TileLayer(
                 urlTemplate: tileUrlTemplate,
+                fallbackUrl: _fallbackMapTileUrlTemplate,
                 tileProvider: CachedTileProvider(
                   store: tileCacheStore,
                   headers: <String, String>{'User-Agent': _mapTileUserAgent},
@@ -2182,6 +2195,7 @@ final class _SuggestWastePointSheetState()
                           children: [
                             TileLayer(
                               urlTemplate: widget.tileUrlTemplate,
+                              fallbackUrl: _fallbackMapTileUrlTemplate,
                               tileProvider: CachedTileProvider(
                                 store: widget.tileCacheStore,
                                 headers: <String, String>{
