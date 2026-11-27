@@ -183,11 +183,11 @@ final class SqliteDatabase._() {
     await _seedTransportCatalog(db);
   }
 
-  Future<void> _resetInFlightOutboxRows(Database db) => db.update(
-    'offline_mutation_outbox',
-    <String, Object?>{'status': 'pending'},
-    where: "status = 'in_flight'",
-  );
+  Future<void> _resetInFlightOutboxRows(Database db) =>
+      db.update('offline_mutation_outbox', <String, Object?>{
+        'status': 'pending',
+        'last_error': 'DISPATCH_INTERRUPTED',
+      }, where: "status = 'in_flight'");
 
   Future<void> _seedTransportCatalog(Database db) async {
     final existing = await db.rawQuery(

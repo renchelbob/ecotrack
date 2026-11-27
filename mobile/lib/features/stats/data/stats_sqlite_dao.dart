@@ -461,20 +461,19 @@ final class StatsSqliteDao([SqliteDatabase? db]) {
       return const [];
     }
 
-    final shares =
-        byGroup.entries
-            .map(
-              (entry) => TransportBreakdownShare(
-                modeCode: entry.key,
-                labelRu: entry.value.label,
-                co2SavedGrams: entry.value.grams,
-                percentage:
-                    ((entry.value.grams * 1000) / totalDenominator).round() /
-                    10,
-              ),
-            )
-            .toList()
-          ..sort((a, b) => b.co2SavedGrams.compareTo(a.co2SavedGrams));
+    final shares = byGroup.entries.map((entry) {
+      final numerator = BigInt.from(entry.value.grams) * BigInt.from(1000);
+      final denom = BigInt.from(totalDenominator);
+      final q = numerator ~/ denom;
+      final r = numerator % denom;
+      final tenths = (r * BigInt.two) >= denom ? q + BigInt.one : q;
+      return TransportBreakdownShare(
+        modeCode: entry.key,
+        labelRu: entry.value.label,
+        co2SavedGrams: entry.value.grams,
+        percentage: tenths.toInt() / 10.0,
+      );
+    }).toList()..sort((a, b) => b.co2SavedGrams.compareTo(a.co2SavedGrams));
     return shares;
   }
 
@@ -556,14 +555,7 @@ final class StatsSqliteDao([SqliteDatabase? db]) {
         periodTotalSteps: totalSteps,
         periodTotalDistanceM: totalDistanceM,
         buckets: buckets,
-        equivalents: EcoEquivalentsMetrics(
-          totalCo2SavedGrams: totalCo2,
-          treesPlantedEquivalent: ((totalCo2 / 20000.0) * 100).round() / 100,
-          carKmAvoided: ((totalCo2 / 192.0) * 10).round() / 10,
-          smartphoneChargesEquivalent: (totalCo2 / 8.22).floor(),
-          plasticBottlesRecycledEquivalent: (totalCo2 / 82.80).floor(),
-          ledBulbHoursEquivalent: (totalCo2 / 3.40).floor(),
-        ),
+        equivalents: EcoEquivalentsMetrics.fromCo2Grams(totalCo2),
       ),
     );
     return (

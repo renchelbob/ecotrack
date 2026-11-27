@@ -103,6 +103,24 @@ final class AuthBloc(
 
   StreamSubscription<UserProfile>? _profileSub;
   StreamSubscription<void>? _sessionEndedSub;
+  bool _isClearingSession = false;
+
+  Future<void> _clearLocalSessionOnly() async {
+    if (_isClearingSession) {
+      return;
+    }
+    _isClearingSession = true;
+    try {
+      await onSessionCleared?.call();
+      if (_authRepo case final AuthSessionNotifier clearer) {
+        await clearer.clearLocalSessionOnly();
+      } else {
+        await _profileRepo.clearAllLocalUserData();
+      }
+    } finally {
+      _isClearingSession = false;
+    }
+  }
 
   Future<void> _onSessionChecked(
     AuthSessionChecked event,
@@ -126,7 +144,7 @@ final class AuthBloc(
         );
       case Err(:final error):
         if (error.clientAction == ClientErrorAction.forceLogout) {
-          await onSessionCleared?.call();
+          await _clearLocalSessionOnly();
           emit(const AuthUnauthenticated());
         } else {
           emit(AuthError(error));
@@ -176,11 +194,23 @@ final class AuthBloc(
     final current = state;
     final profile = switch (current) {
       AuthGooglePhoneRequired(:final profile) => profile,
-      _ => null,
+      AuthInitial() ||
+      AuthOnboardingRequired() ||
+      AuthUnauthenticated() ||
+      AuthAuthenticating() ||
+      AuthConsentResolutionRequired() ||
+      AuthAuthenticated() ||
+      AuthError() => null,
     };
     final banner = switch (current) {
       AuthGooglePhoneRequired(:final warningBanner) => warningBanner,
-      _ => defaultGoogleLabBanner,
+      AuthInitial() ||
+      AuthOnboardingRequired() ||
+      AuthUnauthenticated() ||
+      AuthAuthenticating() ||
+      AuthConsentResolutionRequired() ||
+      AuthAuthenticated() ||
+      AuthError() => defaultGoogleLabBanner,
     };
     if (profile != null) {
       emit(AuthGooglePhoneRequired(profile, banner, null, true));
@@ -197,8 +227,7 @@ final class AuthBloc(
         );
       case Err(:final error):
         if (error.clientAction == ClientErrorAction.forceLogout) {
-          await onSessionCleared?.call();
-          await _authRepo.logout();
+          await _clearLocalSessionOnly();
           emit(const AuthUnauthenticated());
           return;
         }
@@ -218,11 +247,22 @@ final class AuthBloc(
     final currentProfile = switch (current) {
       AuthConsentResolutionRequired(:final profile) => profile,
       AuthAuthenticated(:final profile) => profile,
-      _ => null,
+      AuthInitial() ||
+      AuthOnboardingRequired() ||
+      AuthUnauthenticated() ||
+      AuthAuthenticating() ||
+      AuthGooglePhoneRequired() ||
+      AuthError() => null,
     };
     final wasRevoked = switch (current) {
       AuthConsentResolutionRequired(:final isRevoked) => isRevoked,
-      _ => true,
+      AuthInitial() ||
+      AuthOnboardingRequired() ||
+      AuthUnauthenticated() ||
+      AuthAuthenticating() ||
+      AuthGooglePhoneRequired() ||
+      AuthAuthenticated() ||
+      AuthError() => true,
     };
     if (currentProfile != null) {
       emit(
@@ -249,6 +289,11 @@ final class AuthBloc(
                   : null,
             );
           case Err(:final error):
+            if (error.clientAction == ClientErrorAction.forceLogout) {
+              await _clearLocalSessionOnly();
+              emit(const AuthUnauthenticated());
+              return;
+            }
             if (currentProfile != null) {
               emit(
                 AuthConsentResolutionRequired(
@@ -262,6 +307,11 @@ final class AuthBloc(
             }
         }
       case Err(:final error):
+        if (error.clientAction == ClientErrorAction.forceLogout) {
+          await _clearLocalSessionOnly();
+          emit(const AuthUnauthenticated());
+          return;
+        }
         if (currentProfile != null) {
           emit(
             AuthConsentResolutionRequired(currentProfile, wasRevoked, error),
@@ -276,17 +326,29 @@ final class AuthBloc(
     AuthLogoutRequested event,
     Emitter<AuthState> emit,
   ) async {
-    await onSessionCleared?.call();
-    await _authRepo.logout();
-    emit(const AuthUnauthenticated());
+    if (_isClearingSession) {
+      return;
+    }
+    _isClearingSession = true;
+    try {
+      await onSessionCleared?.call();
+      await _authRepo.logout();
+      emit(const AuthUnauthenticated());
+    } finally {
+      _isClearingSession = false;
+    }
   }
 
   Future<void> _onForceLogoutRequested(
     AuthForceLogoutRequested event,
     Emitter<AuthState> emit,
   ) async {
-    await onSessionCleared?.call();
-    await _authRepo.logout();
+    if (_isClearingSession ||
+        state is AuthUnauthenticated ||
+        state is AuthOnboardingRequired) {
+      return;
+    }
+    await _clearLocalSessionOnly();
     emit(const AuthUnauthenticated());
   }
 
@@ -296,7 +358,12 @@ final class AuthBloc(
         emit(AuthAuthenticated(profile, isForeignLabMode));
       case AuthGooglePhoneRequired(:final profile, :final inlineError):
         emit(AuthGooglePhoneRequired(profile, null, inlineError));
-      default:
+      case AuthInitial() ||
+          AuthOnboardingRequired() ||
+          AuthUnauthenticated() ||
+          AuthAuthenticating() ||
+          AuthConsentResolutionRequired() ||
+          AuthError():
         break;
     }
   }
@@ -333,7 +400,11 @@ final class AuthBloc(
                 : null,
           );
         }
-      default:
+      case AuthInitial() ||
+          AuthOnboardingRequired() ||
+          AuthUnauthenticated() ||
+          AuthAuthenticating() ||
+          AuthError():
         break;
     }
   }
@@ -342,6 +413,11 @@ final class AuthBloc(
     AuthExternalLogoutObserved event,
     Emitter<AuthState> emit,
   ) async {
+    if (_isClearingSession ||
+        state is AuthUnauthenticated ||
+        state is AuthOnboardingRequired) {
+      return;
+    }
     await onSessionCleared?.call();
     emit(const AuthUnauthenticated());
   }

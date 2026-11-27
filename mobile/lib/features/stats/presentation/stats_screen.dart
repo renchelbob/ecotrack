@@ -917,50 +917,76 @@ final class const _EmissionsDrilldownBody({required final StatsLoaded loaded})
             style: EcoTypography.titleMedium,
           ),
           const SizedBox(height: 12),
-          SizedBox(
-            height: 190,
-            child: PieChart(
-              PieChartData(
-                centerSpaceRadius: 36,
-                sections: [
-                  for (
-                    var i = 0;
-                    i < loaded.emissions.transportShares.length;
-                    i++
-                  )
-                    PieChartSectionData(
-                      value: math.max(
-                        1.0,
-                        loaded.emissions.transportShares[i].percentage,
-                      ),
-                      title:
-                          '${loaded.emissions.transportShares[i].percentage.round()}%',
-                      radius: 52,
-                      color: i.isEven
-                          ? EcoColors.inkPrimary
-                          : EcoColors.borderMuted,
-                      titleStyle: EcoTypography.labelSmall.copyWith(
-                        color: EcoColors.surfacePrimary,
-                      ),
-                    ),
-                ],
-              ),
-            ),
+          _TransportSharesDonutSection(
+            shares: loaded.emissions.transportShares,
           ),
-          const SizedBox(height: 10),
-          for (final share in loaded.emissions.transportShares)
-            ListTile(
-              dense: true,
-              title: Text(share.labelRu),
-              trailing: Text(
-                '${share.co2SavedGrams} г (${share.percentage.toStringAsFixed(0)}%)',
-                style: EcoTypography.tabularMetric,
-              ),
-            ),
         ],
       ],
     );
   }
+}
+
+final class const _TransportSharesDonutSection({
+  required final List<TransportBreakdownShare> shares,
+}) extends StatelessWidget {
+  static const List<Color> _pieShades = [
+    EcoColors.inkPrimary,
+    EcoColors.inkSecondary,
+    EcoColors.borderMuted,
+    Color(0xFF5A5A5A),
+    EcoColors.surfaceCard,
+  ];
+
+  static bool _isLightShade(int index) {
+    final slot = index % _pieShades.length;
+    return slot == 2 || slot == 4;
+  }
+
+  @override
+  Widget build(BuildContext context) => Column(
+    children: [
+      SizedBox(
+        height: 190,
+        child: PieChart(
+          PieChartData(
+            centerSpaceRadius: 36,
+            sectionsSpace: 2,
+            sections: [
+              for (var i = 0; i < shares.length; i++)
+                PieChartSectionData(
+                  value: math.max(1.0, shares[i].percentage),
+                  title: '${shares[i].percentage.round()}%',
+                  radius: 52,
+                  color: _pieShades[i % _pieShades.length],
+                  titleStyle: EcoTypography.labelSmall.copyWith(
+                    color: _isLightShade(i)
+                        ? EcoColors.inkPrimary
+                        : EcoColors.surfacePrimary,
+                  ),
+                ),
+            ],
+          ),
+        ),
+      ),
+      const SizedBox(height: 10),
+      for (var i = 0; i < shares.length; i++)
+        ListTile(
+          dense: true,
+          leading: DecoratedBox(
+            decoration: BoxDecoration(
+              color: _pieShades[i % _pieShades.length],
+              shape: .circle,
+            ),
+            child: const SizedBox(width: 14, height: 14),
+          ),
+          title: Text(shares[i].labelRu),
+          trailing: Text(
+            '${shares[i].co2SavedGrams} г (${shares[i].percentage.toStringAsFixed(0)}%)',
+            style: EcoTypography.tabularMetric,
+          ),
+        ),
+    ],
+  );
 }
 
 final class const ActivityHistoryDrilldownScreen({super.key})

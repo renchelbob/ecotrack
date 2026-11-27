@@ -26,6 +26,10 @@ final class OAuthPkceClient({
 }) {
   static const String redirectUri = 'ecotrack://auth/callback';
 
+  static const String _googleRedirectUri = String.fromEnvironment(
+    'GOOGLE_OAUTH_REDIRECT_URI',
+    defaultValue: redirectUri,
+  );
   static const String _yandexClientId = String.fromEnvironment(
     'YANDEX_OAUTH_CLIENT_ID',
     defaultValue: 'ecotrack-yandex-client',
@@ -40,6 +44,27 @@ final class OAuthPkceClient({
   );
 
   FlutterAppAuth get _effectiveAppAuth => appAuth ?? const FlutterAppAuth();
+
+  static String redirectUriFor(AuthProviderType provider) => switch (provider) {
+    .google => _googleRedirectUri,
+    .yandex || .vk => redirectUri,
+  };
+
+  static bool isClientConfiguredFor(AuthProviderType provider) {
+    final clientId = configFor(provider).clientId.trim();
+    if (clientId.isEmpty || clientId.startsWith('mock_')) {
+      return false;
+    }
+    return clientId != 'ecotrack-yandex-client' &&
+        clientId != 'ecotrack-vk-client' &&
+        clientId != 'ecotrack-google-client';
+  }
+
+  static String _envKeyFor(AuthProviderType provider) => switch (provider) {
+    .yandex => 'YANDEX_OAUTH_CLIENT_ID',
+    .vk => 'VK_OAUTH_CLIENT_ID',
+    .google => 'GOOGLE_OAUTH_CLIENT_ID',
+  };
 
   static OAuthProviderConfig configFor(AuthProviderType provider) =>
       switch (provider) {
@@ -78,12 +103,27 @@ final class OAuthPkceClient({
       return await override(provider);
     }
 
+    if (!isClientConfiguredFor(provider)) {
+      return Err(
+        AppError(
+          code: 'OAUTH_CODE_EXCHANGE_FAILED',
+          httpStatus: 400,
+          domain: 'auth',
+          retryable: false,
+          clientAction: .showBanner,
+          uiMessageRu:
+              'OAuth для ${provider.displayNameRu} не настроен в этой сборке: передайте --dart-define=${_envKeyFor(provider)}=...',
+        ),
+      );
+    }
+
     final cfg = configFor(provider);
+    final effectiveRedirect = redirectUriFor(provider);
     try {
       final response = await _effectiveAppAuth.authorize(
         AuthorizationRequest(
           cfg.clientId,
-          redirectUri,
+          effectiveRedirect,
           serviceConfiguration: cfg.serviceConfig,
           scopes: cfg.scopes,
         ),
@@ -101,7 +141,7 @@ final class OAuthPkceClient({
           provider: provider,
           authorizationCode: code,
           codeVerifier: verifier,
-          redirectUri: redirectUri,
+          redirectUri: effectiveRedirect,
         ),
       );
     } on FlutterAppAuthUserCancelledException {

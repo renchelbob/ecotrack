@@ -187,7 +187,7 @@ void main() {
           'updated_at_ms': nowMs,
         });
 
-        final dispatcher = OutboxDispatcher(db: SqliteDatabase.instance);
+        final dispatcher = OutboxDispatcher(db: .instance);
         await dispatcher.enqueue(
           operationType: 'sync_daily_steps',
           httpMethod: 'PUT',
@@ -251,8 +251,8 @@ void main() {
     );
 
     test('ProfileSqliteDao.cacheBadges persists rewardPoints: 250 without CHECK constraint failure', () async {
-      final dispatcher = OutboxDispatcher(db: SqliteDatabase.instance);
-      final dao = ProfileSqliteDao(SqliteDatabase.instance, dispatcher);
+      final dispatcher = OutboxDispatcher(db: .instance);
+      final dao = ProfileSqliteDao(.instance, dispatcher);
       const badge = BadgeCatalogProgressItem(
         code: 'eco_warrior_250',
         titleRu: 'Эко-воин',

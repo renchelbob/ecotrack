@@ -72,14 +72,6 @@ final class const MascotVectorPainter({
       oldDelegate.isPointerSquinting != isPointerSquinting;
 }
 
-final Paint _fillLight = Paint()
-  ..color = const Color(0xFFF6F6F6)
-  ..style = .fill;
-
-final Paint _fillWhite = Paint()
-  ..color = EcoColors.surfacePrimary
-  ..style = .fill;
-
 final Paint _strokeInk = Paint()
   ..color = EcoColors.inkPrimary
   ..style = .stroke
@@ -106,26 +98,26 @@ void _paintTail(
 
   canvas
     ..save()
+    // Clip at the body's left contour so wagging never pokes inside the
+    // transparent wireframe silhouette or leaves a gap at x = 92.
+    ..clipRect(const Rect.fromLTWH(0, 0, 92, 240))
     ..translate(92, 198)
     ..rotate(angleRad)
     ..translate(-92, -198);
 
-  final tailBody = Path()
-    ..moveTo(92, 142)
+  final tailContour = Path()
+    ..moveTo(98, 142)
     ..lineTo(68, 142)
     ..arcToPoint(
       const Offset(68, 206),
       radius: const Radius.circular(32),
       clockwise: false,
     )
-    ..lineTo(92, 206)
-    ..close();
+    ..lineTo(98, 206);
 
   canvas
-    ..drawPath(tailBody, _fillLight)
-    ..drawPath(tailBody, _strokeInk)
+    ..drawPath(tailContour, _strokeInk)
     ..drawLine(const Offset(68, 142), const Offset(68, 206), _strokeInk)
-    ..drawLine(const Offset(80, 142), const Offset(80, 206), _strokeInk)
     ..restore();
 }
 
@@ -138,18 +130,14 @@ void _paintBodyAndHead(
   final earPeakY = (mood == .sleepy ? 44.0 : 34.0) + earFlatten;
   final silhouette = Path()
     ..moveTo(92, 206)
-    ..cubicTo(92, 118, 108, 62, 146, 36)
+    ..lineTo(92, 138)
+    ..cubicTo(92, 104, 108, 58, 146, earPeakY + 2)
     ..lineTo(148, earPeakY + 12)
     ..lineTo(192, 92)
     ..lineTo(164, 118)
     ..lineTo(164, 206);
 
-  final filled = Path.from(silhouette)
-    ..lineTo(92, 206)
-    ..close();
-
   canvas
-    ..drawPath(filled, _fillWhite)
     ..drawPath(silhouette, _strokeInk)
     ..drawLine(const Offset(92, 206), const Offset(132, 206), _strokeInk)
     ..drawLine(const Offset(122, 174), const Offset(132, 206), _strokeInk)
@@ -270,9 +258,7 @@ void _paintAura(
 
 void _drawSparkle(Canvas canvas, Offset center, double r) {
   if (r >= 5.0) {
-    canvas
-      ..drawCircle(center, r, _fillLight)
-      ..drawCircle(center, r, _strokeInk);
+    canvas.drawCircle(center, r, _strokeInk);
     return;
   }
   canvas

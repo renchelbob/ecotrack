@@ -116,7 +116,7 @@ final class const AppDependencies({
       onPermanentError: (err) => callbacks.onPermanentError?.call(err),
     );
 
-    final stepBridge = StepSensorBridge(db: db);
+    final stepBridge = StepSensorBridge(db: db, outboxDispatcher: outbox);
     final gpsService = GpsForegroundService(
       db: db,
       outboxDispatcher: outbox,
@@ -130,6 +130,8 @@ final class const AppDependencies({
       db,
       tokenStore,
       outbox,
+      gpsService: gpsService,
+      pushProvider: pushProvider,
     );
     final friendsRepo = FriendsRepositoryImpl(dioClient, db, outbox);
     final authRepo = AuthRepositoryImpl(

@@ -11,8 +11,12 @@ final class EcoTopBannerOverlay._() {
   final ValueNotifier<AppError?> currentBannerError = ValueNotifier<AppError?>(
     null,
   );
+  VoidCallback? _currentOnRetry;
 
-  void show(AppError error) {
+  VoidCallback? get currentOnRetry => _currentOnRetry;
+
+  void show(AppError error, {VoidCallback? onRetry}) {
+    _currentOnRetry = onRetry;
     if (currentBannerError.value == error) {
       currentBannerError.value = null;
     }
@@ -25,14 +29,77 @@ final class EcoTopBannerOverlay._() {
       httpStatus: 200,
       domain: 'ui',
       retryable: false,
-      clientAction: ClientErrorAction.showBanner,
+      clientAction: .showBanner,
       uiMessageRu: message,
     ),
   );
 
   void dismiss() {
+    _currentOnRetry = null;
     currentBannerError.value = null;
   }
+}
+
+final class const EcoInlineErrorScope({
+  required final ValueChanged<AppError> onInlineError,
+  required super.child,
+  super.key,
+}) extends InheritedWidget {
+  static ValueChanged<AppError>? maybeHandlerOf(BuildContext context) => context
+      .dependOnInheritedWidgetOfExactType<EcoInlineErrorScope>()
+      ?.onInlineError;
+
+  @override
+  bool updateShouldNotify(covariant EcoInlineErrorScope oldWidget) =>
+      oldWidget.onInlineError != onInlineError;
+}
+
+final class const EcoInlineErrorCallout({
+  required final AppError error,
+  final VoidCallback? onRetry,
+  super.key,
+}) extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) => Row(
+    crossAxisAlignment: .start,
+    children: [
+      const Padding(
+        padding: .only(top: 2),
+        child: Icon(
+          Icons.warning_amber_rounded,
+          size: 16,
+          color: EcoColors.inkPrimary,
+        ),
+      ),
+      const SizedBox(width: 8),
+      Expanded(
+        child: Text(
+          error.uiMessageRu,
+          style: EcoTypography.labelSmall.copyWith(
+            fontSize: 12,
+            fontWeight: .w700,
+            color: EcoColors.inkPrimary,
+          ),
+        ),
+      ),
+      if (onRetry case final retry?) ...[
+        const SizedBox(width: 8),
+        ConstrainedBox(
+          constraints: const BoxConstraints(minWidth: 48, minHeight: 48),
+          child: TextButton(
+            onPressed: retry,
+            child: Text(
+              'Повторить',
+              style: EcoTypography.labelSmall.copyWith(
+                color: EcoColors.inkPrimary,
+                fontWeight: .w700,
+              ),
+            ),
+          ),
+        ),
+      ],
+    ],
+  );
 }
 
 final class EcoErrorBannerPresenter({
@@ -42,22 +109,30 @@ final class EcoErrorBannerPresenter({
   final VoidCallback? onOpenPhoneModal,
   final VoidCallback? onOpenConsentScreen,
   final VoidCallback? onRetry,
+  final ValueChanged<AppError>? onShowInline,
 }) {
   static const String offlineQueuedMessageRu =
       'Сохранено офлайн · Синхронизируем при появлении сети';
 
   void present() {
     switch (error.clientAction) {
-      case ClientErrorAction.none:
-      case ClientErrorAction.refreshToken:
+      case .none:
+      case .refreshToken:
         return;
-      case ClientErrorAction.forceLogout:
+      case .forceLogout:
         onForceLogout?.call();
         EcoTopBannerOverlay.instance.show(error);
-      case ClientErrorAction.showInline:
-      case ClientErrorAction.showBanner:
-        EcoTopBannerOverlay.instance.show(error);
-      case ClientErrorAction.queueRetry:
+      case .showInline:
+        final inlineHandler =
+            onShowInline ?? EcoInlineErrorScope.maybeHandlerOf(context);
+        if (inlineHandler != null) {
+          inlineHandler(error);
+          return;
+        }
+        EcoTopBannerOverlay.instance.show(error, onRetry: onRetry);
+      case .showBanner:
+        EcoTopBannerOverlay.instance.show(error, onRetry: onRetry);
+      case .queueRetry:
         EcoTopBannerOverlay.instance.show(
           AppError(
             code: error.code,
@@ -69,10 +144,11 @@ final class EcoErrorBannerPresenter({
             traceId: error.traceId,
             details: error.details,
           ),
+          onRetry: onRetry,
         );
-      case ClientErrorAction.openPhoneModal:
+      case .openPhoneModal:
         onOpenPhoneModal?.call();
-      case ClientErrorAction.openConsentScreen:
+      case .openConsentScreen:
         onOpenConsentScreen?.call();
     }
   }
@@ -84,6 +160,7 @@ final class EcoErrorBannerPresenter({
     VoidCallback? onOpenPhoneModal,
     VoidCallback? onOpenConsentScreen,
     VoidCallback? onRetry,
+    ValueChanged<AppError>? onShowInline,
   }) => EcoErrorBannerPresenter(
     context: context,
     error: error,
@@ -91,6 +168,7 @@ final class EcoErrorBannerPresenter({
     onOpenPhoneModal: onOpenPhoneModal,
     onOpenConsentScreen: onOpenConsentScreen,
     onRetry: onRetry,
+    onShowInline: onShowInline,
   ).present();
 }
 
@@ -104,10 +182,11 @@ final class const EcoTopBannerHost({
 }
 
 final class _EcoTopBannerHostState() extends State<EcoTopBannerHost> {
-  static const Duration _bannerDuration = Duration(milliseconds: 4000);
+  static const Duration _bannerDuration = .new(milliseconds: 4000);
 
   Timer? _dismissTimer;
   AppError? _activeError;
+  late ValueNotifier<AppError?> _listenedNotifier;
 
   EcoTopBannerOverlay get _overlay =>
       widget.overlay ?? EcoTopBannerOverlay.instance;
@@ -115,8 +194,9 @@ final class _EcoTopBannerHostState() extends State<EcoTopBannerHost> {
   @override
   void initState() {
     super.initState();
-    _overlay.currentBannerError.addListener(_handleBannerChanged);
-    _activeError = _overlay.currentBannerError.value;
+    _listenedNotifier = _overlay.currentBannerError;
+    _listenedNotifier.addListener(_handleBannerChanged);
+    _activeError = _listenedNotifier.value;
     if (_activeError != null) {
       _scheduleDismiss();
     }
@@ -125,16 +205,21 @@ final class _EcoTopBannerHostState() extends State<EcoTopBannerHost> {
   @override
   void didUpdateWidget(covariant EcoTopBannerHost oldWidget) {
     super.didUpdateWidget(oldWidget);
-    final oldOverlay = oldWidget.overlay ?? EcoTopBannerOverlay.instance;
-    if (!identical(oldOverlay, _overlay)) {
-      oldOverlay.currentBannerError.removeListener(_handleBannerChanged);
-      _overlay.currentBannerError.addListener(_handleBannerChanged);
-      _handleBannerChanged();
+    final nextNotifier = _overlay.currentBannerError;
+    if (!identical(_listenedNotifier, nextNotifier)) {
+      _listenedNotifier.removeListener(_handleBannerChanged);
+      _listenedNotifier = nextNotifier;
+      _listenedNotifier.addListener(_handleBannerChanged);
+      _dismissTimer?.cancel();
+      _activeError = _listenedNotifier.value;
+      if (_activeError != null) {
+        _scheduleDismiss();
+      }
     }
   }
 
   void _handleBannerChanged() {
-    final nextError = _overlay.currentBannerError.value;
+    final nextError = _listenedNotifier.value;
     _dismissTimer?.cancel();
     if (!mounted) {
       return;
@@ -153,7 +238,7 @@ final class _EcoTopBannerHostState() extends State<EcoTopBannerHost> {
   @override
   void dispose() {
     _dismissTimer?.cancel();
-    _overlay.currentBannerError.removeListener(_handleBannerChanged);
+    _listenedNotifier.removeListener(_handleBannerChanged);
     super.dispose();
   }
 
@@ -173,6 +258,7 @@ final class _EcoTopBannerHostState() extends State<EcoTopBannerHost> {
               child: _EcoTopBannerCard(
                 error: activeError,
                 onDismiss: _overlay.dismiss,
+                onRetry: _overlay.currentOnRetry,
               ),
             ),
           ),
@@ -184,6 +270,7 @@ final class _EcoTopBannerHostState() extends State<EcoTopBannerHost> {
 final class const _EcoTopBannerCard({
   required final AppError error,
   required final VoidCallback onDismiss,
+  final VoidCallback? onRetry,
 }) extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
@@ -195,11 +282,13 @@ final class const _EcoTopBannerCard({
           color: isOfflinePill
               ? EcoColors.surfaceSubtle
               : EcoColors.surfacePrimary,
-          borderRadius: const BorderRadius.all(Radius.circular(20)),
-          border: Border.all(color: EcoColors.inkPrimary, width: 1.5),
+          borderRadius: const .all(.circular(20)),
+          border: const .fromBorderSide(
+            BorderSide(color: EcoColors.inkPrimary, width: 1.5),
+          ),
         ),
         child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          padding: const .symmetric(horizontal: 12, vertical: 8),
           child: Row(
             children: [
               Icon(
@@ -213,10 +302,32 @@ final class const _EcoTopBannerCard({
                   error.uiMessageRu,
                   style: EcoTypography.bodyMedium.copyWith(
                     color: EcoColors.inkPrimary,
-                    fontWeight: FontWeight.w600,
+                    fontWeight: .w600,
                   ),
                 ),
               ),
+              if (onRetry case final retry?) ...[
+                const SizedBox(width: 4),
+                ConstrainedBox(
+                  constraints: const BoxConstraints(
+                    minWidth: 48,
+                    minHeight: 48,
+                  ),
+                  child: TextButton(
+                    onPressed: () {
+                      onDismiss();
+                      retry();
+                    },
+                    child: Text(
+                      'Повторить',
+                      style: EcoTypography.labelSmall.copyWith(
+                        color: EcoColors.inkPrimary,
+                        fontWeight: .w700,
+                      ),
+                    ),
+                  ),
+                ),
+              ],
               ConstrainedBox(
                 constraints: const BoxConstraints(minWidth: 48, minHeight: 48),
                 child: IconButton(

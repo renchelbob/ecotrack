@@ -227,7 +227,7 @@ final class FcmPushProvider({
         'token': token,
         'device_id': deviceId,
       },
-      parser: (_) {},
+      parser: _ignoreVoidResponse,
     );
   }
 
@@ -243,9 +243,13 @@ final class FcmPushProvider({
     }
     await client.delete<void>(
       '/api/v1/push/tokens/${Uri.encodeComponent(token)}',
-      parser: (_) {},
+      parser: _ignoreVoidResponse,
     );
     _lastRegisteredToken = null;
+  }
+
+  static void _ignoreVoidResponse(Object? _) {
+    return;
   }
 
   @override

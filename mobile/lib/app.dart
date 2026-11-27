@@ -28,6 +28,25 @@ final class const EcoTrackApp({
   final AuthBloc? overrideAuthBloc,
   super.key,
 }) extends StatefulWidget {
+  static const Set<String> _allowedDeepLinkPaths = {
+    '/home',
+    '/map',
+    '/stats',
+    '/stats/emissions',
+    '/stats/history',
+    '/stats/challenge',
+    '/shop',
+    '/shop/cart',
+    '/shop/orders/qr',
+    '/shop/orders/promo',
+    '/profile',
+    '/profile/badges',
+    '/profile/friends',
+    '/profile/vehicle',
+    '/ledger',
+    '/onboarding',
+  };
+
   static String? resolveDeepLinkLocation(String rawUri) {
     final trimmed = rawUri.trim();
     if (trimmed.isEmpty) {
@@ -46,19 +65,48 @@ final class const EcoTrackApp({
     if (parsed.path.isEmpty) {
       return null;
     }
-    final normalizedPath = parsed.path.startsWith('/')
+    if (parsed.pathSegments.contains('..')) {
+      return '/home';
+    }
+    var normalizedPath = parsed.path.startsWith('/')
         ? parsed.path
         : '/${parsed.path}';
+    if (normalizedPath.length > 1 && normalizedPath.endsWith('/')) {
+      normalizedPath = normalizedPath.substring(0, normalizedPath.length - 1);
+    }
+    if (normalizedPath == '/friend') {
+      return _buildFriendsLocation(
+        parsed.queryParameters['code'],
+        parsed.queryParameters,
+      );
+    }
     if (normalizedPath.startsWith('/friend/')) {
       final code = normalizedPath.substring('/friend/'.length);
       return _buildFriendsLocation(code, parsed.queryParameters);
     }
-    return _appendQuery(normalizedPath, parsed.query);
+    if (_isAllowedDeepLinkPath(normalizedPath)) {
+      return _appendQuery(normalizedPath, parsed.query);
+    }
+    return '/home';
+  }
+
+  static bool _isAllowedDeepLinkPath(String normalizedPath) {
+    if (_allowedDeepLinkPaths.contains(normalizedPath)) {
+      return true;
+    }
+    if (normalizedPath.startsWith('/stats/equivalents/')) {
+      final suffix = normalizedPath.substring('/stats/equivalents/'.length);
+      return suffix.isNotEmpty && !suffix.contains('/');
+    }
+    return false;
   }
 
   static String? _resolveHostBasedUri(Uri parsed) {
     final host = parsed.host;
     final segments = parsed.pathSegments;
+    if (segments.contains('..')) {
+      return '/home';
+    }
     return switch (host) {
       'friend' => _buildFriendsLocation(
         segments.isNotEmpty ? segments.first : parsed.queryParameters['code'],
@@ -69,13 +117,17 @@ final class const EcoTrackApp({
       'stats' ||
       'shop' ||
       'profile' ||
-      'ledger' => _appendQuery(
+      'ledger' ||
+      'onboarding' => _resolveWhitelistedHostPath(
         segments.isEmpty ? '/$host' : '/$host/${segments.join('/')}',
         parsed.query,
       ),
       _ => null,
     };
   }
+
+  static String _resolveWhitelistedHostPath(String path, String query) =>
+      _isAllowedDeepLinkPath(path) ? _appendQuery(path, query) : '/home';
 
   static String _buildFriendsLocation(
     String? code,
@@ -280,6 +332,8 @@ final class _EcoTrackAppState()
             create: (_) => ProfileSettingsCubit(
               deps.profileRepository,
               deps.authRepository,
+              onLocalSessionCleared: () async =>
+                  _authBloc.add(const AuthExternalLogoutObserved()),
             ),
           ),
           BlocProvider<FriendsCubit>(

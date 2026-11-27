@@ -6,6 +6,8 @@ import 'package:ecotrack_mobile/core/error/app_error.dart';
 import 'package:ecotrack_mobile/core/error/result.dart';
 import 'package:ecotrack_mobile/core/network/dio_client.dart';
 import 'package:ecotrack_mobile/core/network/token_store.dart';
+import 'package:ecotrack_mobile/core/push/push_provider.dart';
+import 'package:ecotrack_mobile/core/sensors/gps_foreground_service.dart';
 import 'package:ecotrack_mobile/core/utils/co2_math.dart';
 import 'package:ecotrack_mobile/core/utils/uuid_v7.dart';
 import 'package:ecotrack_mobile/features/profile_social/data/profile_sqlite_dao.dart';
@@ -17,8 +19,10 @@ final class ProfileRepositoryImpl(
   final DioClient _dioClient,
   final SqliteDatabase _db,
   final TokenStore _tokenStore,
-  final OutboxDispatcher _outbox,
-) implements ProfileRepository {
+  final OutboxDispatcher _outbox, {
+  final GpsForegroundService? gpsService,
+  final PushProvider? pushProvider,
+}) implements ProfileRepository {
   late final ProfileSqliteDao _profileDao = ProfileSqliteDao(_db, _outbox);
   late final VehicleSqliteDao _vehicleDao = VehicleSqliteDao(_db, _outbox);
   final StreamController<UserProfile> _profileController =
@@ -209,9 +213,9 @@ final class ProfileRepositoryImpl(
 
   @override
   Future<Result<void, AppError>> deleteVehicle() async {
-    final result = await _dioClient.delete<void>(
+    final result = await _dioClient.delete<bool>(
       '/api/v1/users/me/vehicle',
-      parser: (_) {},
+      parser: (_) => true,
     );
 
     switch (result) {
@@ -381,6 +385,14 @@ final class ProfileRepositoryImpl(
       return Err(AppError.fromCode('VALIDATION_ERROR'));
     }
 
+    // Halt background sensors/outbox and revoke push token before the user
+    // record and JWT become invalid on the server.
+    final wasPausedForGate = _outbox.isPausedForGate;
+    await _outbox.pauseAndDrain();
+    _outbox.pauseForGate();
+    await gpsService?.stopTracking();
+    await _unregisterPushTokenBestEffort();
+
     final result = await _dioClient.delete<AccountDeletionReceipt>(
       '/api/v1/users/me',
       data: {
@@ -391,13 +403,31 @@ final class ProfileRepositoryImpl(
     );
 
     if (result case Ok(:final value)) {
-      await _tokenStore.clearAll();
+      await _db.wipeAllUserData();
       final prefs = await SharedPreferences.getInstance();
       await prefs.clear();
-      await _db.wipeAllUserData();
+      await _tokenStore.clearTokens();
       return Ok(value);
     }
+
+    if (!wasPausedForGate) {
+      _outbox
+        ..resumeQueue(autoFlush: false)
+        ..startWorker();
+    }
     return result;
+  }
+
+  Future<void> _unregisterPushTokenBestEffort() async {
+    final provider = pushProvider;
+    if (provider == null) {
+      return;
+    }
+    try {
+      await provider.unregisterCurrentToken();
+    } on Exception {
+      return;
+    }
   }
 
   @override

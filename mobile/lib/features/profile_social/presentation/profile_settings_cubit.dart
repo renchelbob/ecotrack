@@ -49,8 +49,9 @@ final class const ProfileSettingsFailure(final AppError error)
 
 final class ProfileSettingsCubit(
   final ProfileRepository _profileRepo,
-  final AuthRepository _authRepo,
-) extends Cubit<ProfileSettingsState> {
+  final AuthRepository _authRepo, {
+  final Future<void> Function()? onLocalSessionCleared,
+}) extends Cubit<ProfileSettingsState> {
   this : super(const ProfileSettingsLoading()) {
     _profileSub = _profileRepo.watchUserProfile().listen(_onProfileBroadcast);
   }
@@ -225,7 +226,11 @@ final class ProfileSettingsCubit(
     return result;
   }
 
-  Future<void> finishAccountDeletionLogout() => _authRepo.logout();
+  /// Completes local session reset after viewing the 152-FZ deletion receipt
+  /// without issuing an unauthenticated HTTP logout or push-token delete.
+  Future<void> finishAccountDeletionLogout() async {
+    await onLocalSessionCleared?.call();
+  }
 
   Future<void> equipAccessory(String? code) async {
     if (state case final ProfileSettingsLoaded loaded) {

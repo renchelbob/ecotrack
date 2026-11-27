@@ -92,7 +92,7 @@ void main() {
         final seenKeysByOutboxId = <int, String>{};
 
         final dispatcher = OutboxDispatcher(
-          db: SqliteDatabase.instance,
+          db: .instance,
           networkSender: (item) async {
             final outboxId = item.outboxId;
             if (outboxId != null) {
@@ -148,7 +148,7 @@ void main() {
           var virtualNow = DateTime.now().millisecondsSinceEpoch;
           for (final op in ops) {
             switch (op) {
-              case _FsmOp.enqueueSteps:
+              case .enqueueSteps:
                 stepCounter += 150;
                 await dispatcher.enqueue(
                   operationType: 'sync_daily_steps',
@@ -160,7 +160,7 @@ void main() {
                     'raw_sensor_steps': stepCounter,
                   }),
                 );
-              case _FsmOp.enqueueGpsBatch:
+              case .enqueueGpsBatch:
                 await dispatcher.enqueue(
                   operationType: 'upload_gps_track_batch',
                   httpMethod: 'POST',
@@ -170,7 +170,7 @@ void main() {
                     'points': const <Object?>[],
                   }),
                 );
-              case _FsmOp.enqueueSegmentAllocation:
+              case .enqueueSegmentAllocation:
                 await dispatcher.enqueue(
                   operationType: 'upsert_segment_allocation',
                   httpMethod: 'PUT',
@@ -180,13 +180,13 @@ void main() {
                     'allocations': const <Object?>[],
                   }),
                 );
-              case _FsmOp.networkDrop:
+              case .networkDrop:
                 isOnline = false;
-              case _FsmOp.networkRestore:
+              case .networkRestore:
                 isOnline = true;
-              case _FsmOp.http429:
+              case .http429:
                 forceRateLimit = true;
-              case _FsmOp.http200:
+              case .http200:
                 isOnline = true;
                 forceRateLimit = false;
             }
@@ -229,7 +229,7 @@ void main() {
       await openMemoryDb();
       final permanentErrors = <AppError>[];
       final dispatcher = OutboxDispatcher(
-        db: SqliteDatabase.instance,
+        db: .instance,
         networkSender: (_) async =>
             const OutboxSendRetryLater('DATABASE_UNAVAILABLE'),
         onPermanentError: permanentErrors.add,
@@ -279,7 +279,7 @@ void main() {
       final permanentErrors = <AppError>[];
 
       final dispatcher = OutboxDispatcher(
-        db: SqliteDatabase.instance,
+        db: .instance,
         networkSender: (_) async => nextOutcome,
         onGateError: gateErrors.add,
         onPermanentError: permanentErrors.add,
@@ -314,7 +314,7 @@ void main() {
 
         now += 600000;
         nextOutcome = OutboxSendRequiresGate(
-          AppError.fromCode('FZ152_CONSENT_REVOKED'),
+          .fromCode('FZ152_CONSENT_REVOKED'),
         );
         await dispatcher.flush(nowMsOverride: now);
         expect(dispatcher.isPausedForGate, isTrue);
@@ -322,7 +322,7 @@ void main() {
         expect(gateErrors.single.code, equals('FZ152_CONSENT_REVOKED'));
 
         nextOutcome = OutboxSendPermanentFailure(
-          AppError.fromCode('EDIT_WINDOW_EXPIRED'),
+          .fromCode('EDIT_WINDOW_EXPIRED'),
         );
         dispatcher.resumeQueue(autoFlush: false);
         await dispatcher.flush(nowMsOverride: now + 600000);
@@ -367,7 +367,7 @@ void main() {
         });
 
         final dispatcher = OutboxDispatcher(
-          db: SqliteDatabase.instance,
+          db: .instance,
           networkSender: (_) async => OutboxSendSuccess(<String, Object?>{
             'activity_date': '2026-11-24',
             'validated_steps': 3500,
@@ -480,7 +480,7 @@ void main() {
       });
 
       final dispatcher = OutboxDispatcher(
-        db: SqliteDatabase.instance,
+        db: .instance,
         networkSender: (item) async {
           if (item.operationType == 'upsert_segment_allocation') {
             return const OutboxSendSuccess(<String, Object?>{
@@ -533,7 +533,7 @@ void main() {
           'local_gps_track_points',
           orderBy: 'seq_no ASC',
         );
-        expect(pts[0]['sync_status'], equals('synced'));
+        expect(pts.first['sync_status'], equals('synced'));
         expect(pts[1]['sync_status'], equals('synced'));
         expect(pts[2]['sync_status'], equals('pending'));
 
@@ -623,9 +623,9 @@ void main() {
       });
 
       final dispatcher = OutboxDispatcher(
-        db: SqliteDatabase.instance,
+        db: .instance,
         networkSender: (_) async => OutboxSendPermanentFailure(
-          AppError.fromCode('SEGMENT_CONTAINS_VEHICLE_MOTION'),
+          .fromCode('SEGMENT_CONTAINS_VEHICLE_MOTION'),
         ),
       );
 

@@ -7,6 +7,7 @@ import 'package:ecotrack_mobile/core/error/app_error.dart';
 import 'package:ecotrack_mobile/core/network/dio_client.dart';
 import 'package:ecotrack_mobile/core/utils/co2_math.dart';
 import 'package:ecotrack_mobile/core/utils/uuid_v7.dart';
+import 'package:flutter/widgets.dart';
 import 'package:sqflite/sqflite.dart';
 
 sealed class const OutboxSendResponse();
@@ -58,6 +59,29 @@ final class const OutboxItem({
     createdAtMs: (map['created_at_ms'] as num?)?.toInt() ?? 0,
   );
 
+  OutboxItem copyWith({
+    String? idempotencyKey,
+    String? payloadJson,
+    int? retryCount,
+    int? nextRetryAtMs,
+    String? lastError,
+    bool clearLastError = false,
+    String? status,
+  }) => OutboxItem(
+    outboxId: outboxId,
+    idempotencyKey: idempotencyKey ?? this.idempotencyKey,
+    operationType: operationType,
+    httpMethod: httpMethod,
+    endpointPath: endpointPath,
+    payloadJson: payloadJson ?? this.payloadJson,
+    retryCount: retryCount ?? this.retryCount,
+    maxRetries: maxRetries,
+    nextRetryAtMs: nextRetryAtMs ?? this.nextRetryAtMs,
+    lastError: clearLastError ? null : (lastError ?? this.lastError),
+    status: status ?? this.status,
+    createdAtMs: createdAtMs,
+  );
+
   Map<String, Object?> toMap() => <String, Object?>{
     if (outboxId != null) 'outbox_id': outboxId,
     'idempotency_key': idempotencyKey,
@@ -85,7 +109,7 @@ final class OutboxDispatcher({
   final void Function(AppError error)? onPermanentError,
   final void Function(AppError error)? onGateError,
   final void Function()? onForceLogout,
-}) {
+}) with WidgetsBindingObserver {
   static const String tableName = 'offline_mutation_outbox';
   static const String statusPending = 'pending';
   static const String statusInFlight = 'in_flight';
@@ -112,15 +136,20 @@ final class OutboxDispatcher({
   final StreamController<int> _pendingCountController =
       StreamController<int>.broadcast();
   Timer? _workerTimer;
+  Completer<void>? _activeFlushCompleter;
   bool _isFlushing = false;
   bool _isPausedForGate = false;
+  bool _isPausedForDrain = false;
   bool _disposed = false;
+  bool _hasLifecycleObserver = false;
 
   SqliteDatabase get _database => db ?? SqliteDatabase.instance;
 
   Stream<int> get pendingCountStream => _pendingCountController.stream;
 
   bool get isPausedForGate => _isPausedForGate;
+
+  bool get isPaused => _isPausedForGate || _isPausedForDrain;
 
   static OutboxMutationSender senderFromDioClient(
     DioClient client,
@@ -144,7 +173,11 @@ final class OutboxDispatcher({
     }
 
     final retryAfterSec = int.tryParse(outcome.retryAfterHeader?.trim() ?? '');
-    if (outcome.statusCode == 429 && error.retryable) {
+    if (outcome.statusCode == 429) {
+      if (item.operationType == 'send_friend_wakeup_nudge' ||
+          !error.retryable) {
+        return OutboxSendPermanentFailure(error);
+      }
       return OutboxSendRetryLater(error.code, retryAfterSec ?? 30);
     }
 
@@ -200,28 +233,88 @@ final class OutboxDispatcher({
     return null;
   }
 
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed && !_disposed && !isPaused) {
+      unawaited(onAppResumed());
+    }
+  }
+
+  void _registerLifecycleObserver() {
+    if (_hasLifecycleObserver) {
+      return;
+    }
+    WidgetsFlutterBinding.ensureInitialized().addObserver(this);
+    _hasLifecycleObserver = true;
+  }
+
+  void _unregisterLifecycleObserver() {
+    if (!_hasLifecycleObserver) {
+      return;
+    }
+    _hasLifecycleObserver = false;
+    WidgetsBinding.instance.removeObserver(this);
+  }
+
   void startWorker({Duration interval = const Duration(seconds: 15)}) {
     if (_disposed) {
       return;
     }
     _workerTimer?.cancel();
     _workerTimer = Timer.periodic(interval, (_) => unawaited(flush()));
+    _registerLifecycleObserver();
+    if (!isPaused) {
+      unawaited(flush());
+    }
   }
 
   void stopWorker() {
     _workerTimer?.cancel();
     _workerTimer = null;
+    _unregisterLifecycleObserver();
   }
 
   void pauseForGate() {
     _isPausedForGate = true;
   }
 
+  Future<void> pauseAndDrain() async {
+    _isPausedForDrain = true;
+    stopWorker();
+    final active = _activeFlushCompleter;
+    if (active != null && !active.isCompleted) {
+      await active.future;
+    }
+  }
+
+  Future<void> resume({bool autoFlush = true}) async {
+    _isPausedForDrain = false;
+    _isPausedForGate = false;
+    if (autoFlush && !_disposed) {
+      await flush();
+    }
+  }
+
   void resumeQueue({bool autoFlush = true}) {
     _isPausedForGate = false;
+    _isPausedForDrain = false;
     if (autoFlush) {
       unawaited(flush());
     }
+  }
+
+  Future<void> onConnectivityRestored() async {
+    if (_disposed || isPaused) {
+      return;
+    }
+    await flush();
+  }
+
+  Future<void> onAppResumed() async {
+    if (_disposed || isPaused) {
+      return;
+    }
+    await flush();
   }
 
   Future<int> countPending() async {
@@ -276,19 +369,27 @@ final class OutboxDispatcher({
             existingPayloadJson: existing.payloadJson,
             incomingPayloadJson: payloadJson,
           );
-          await txn.update(
+          final updated = await txn.update(
             tableName,
             <String, Object?>{
               'idempotency_key': key,
               'http_method': httpMethod.toUpperCase(),
               'endpoint_path': endpointPath,
               'payload_json': mergedPayload,
+              'retry_count': 0,
               'next_retry_at_ms': nowMs,
+              'last_error': null,
             },
-            where: 'outbox_id = ?',
-            whereArgs: [existing.outboxId],
+            where: 'outbox_id = ? AND status = ? AND idempotency_key = ?',
+            whereArgs: [
+              existing.outboxId,
+              statusPending,
+              existing.idempotencyKey,
+            ],
           );
-          return key;
+          if (updated == 1) {
+            return key;
+          }
         }
       }
 
@@ -314,62 +415,157 @@ final class OutboxDispatcher({
 
   Future<void> flush({int? nowMsOverride}) async {
     final sender = networkSender;
-    if (_disposed || _isFlushing || _isPausedForGate || sender == null) {
+    if (_disposed || _isFlushing || isPaused || sender == null) {
       return;
     }
 
     _isFlushing = true;
+    final completer = Completer<void>();
+    _activeFlushCompleter = completer;
     try {
-      final nowMs = nowMsOverride ?? DateTime.now().millisecondsSinceEpoch;
-      final activeRows = await _database.database.query(
-        tableName,
-        where: 'status IN (?, ?)',
-        whereArgs: const [statusPending, statusInFlight],
-        orderBy: 'outbox_id ASC',
-      );
-      final activeItems = activeRows.map(OutboxItem.fromMap).toList();
-
-      for (final item in activeItems) {
-        if (_disposed || _isPausedForGate) {
+      final attemptedIds = <int>{};
+      while (!_disposed && !isPaused) {
+        final preCheckNowMs =
+            nowMsOverride ?? DateTime.now().millisecondsSinceEpoch;
+        final candidate = await _pickNextCandidate(
+          nowMs: preCheckNowMs,
+          excludedIds: attemptedIds,
+        );
+        final itemId = candidate?.outboxId;
+        if (candidate == null || itemId == null) {
           break;
         }
-        if (item.status != statusPending || item.nextRetryAtMs > nowMs) {
-          continue;
-        }
-        if (await _isBlockedByCausalBarrier(item)) {
-          continue;
-        }
+        attemptedIds.add(itemId);
 
-        final itemId = item.outboxId;
-        if (itemId == null) {
-          continue;
-        }
-
-        await _database.database.update(
-          tableName,
-          <String, Object?>{'status': statusInFlight},
-          where: 'outbox_id = ?',
-          whereArgs: [itemId],
+        final claimNowMs =
+            nowMsOverride ?? DateTime.now().millisecondsSinceEpoch;
+        final claimResult = await _claimOrCascadeFail(
+          itemId: itemId,
+          nowMs: claimNowMs,
         );
+        if (claimResult.cascadeError case final cascadeErr?) {
+          await _emitPendingCount();
+          onPermanentError?.call(cascadeErr);
+          continue;
+        }
+        final claimed = claimResult.claimed;
+        if (claimed == null) {
+          continue;
+        }
 
         OutboxSendResponse response;
         try {
-          response = await sender(item);
+          response = await sender(claimed);
         } on Object catch (_) {
           response = const OutboxSendRetryLater('DATABASE_UNAVAILABLE');
         }
 
+        final postAttemptNowMs =
+            nowMsOverride ?? DateTime.now().millisecondsSinceEpoch;
         await _applySendOutcome(
-          item: item,
+          item: claimed,
           response: response,
-          nowMsOverride: nowMs,
+          nowMs: postAttemptNowMs,
         );
         await _emitPendingCount();
       }
     } finally {
       _isFlushing = false;
+      if (!completer.isCompleted) {
+        completer.complete();
+      }
+      if (identical(_activeFlushCompleter, completer)) {
+        _activeFlushCompleter = null;
+      }
     }
   }
+
+  Future<OutboxItem?> _pickNextCandidate({
+    required int nowMs,
+    required Set<int> excludedIds,
+  }) async {
+    final rows = await _database.database.query(
+      tableName,
+      where: 'status = ? AND next_retry_at_ms <= ?',
+      whereArgs: [statusPending, nowMs],
+      orderBy: 'outbox_id ASC',
+    );
+    for (final row in rows) {
+      final item = OutboxItem.fromMap(row);
+      final id = item.outboxId;
+      if (id == null || excludedIds.contains(id)) {
+        continue;
+      }
+      final barrier = await _evaluateBarrier(
+        executor: _database.database,
+        item: item,
+      );
+      if (barrier.failedCode != null || !barrier.blocked) {
+        return item;
+      }
+    }
+    return null;
+  }
+
+  Future<({OutboxItem? claimed, AppError? cascadeError})> _claimOrCascadeFail({
+    required int itemId,
+    required int nowMs,
+  }) => _database.database.transaction((txn) async {
+    final rows = await txn.query(
+      tableName,
+      where: 'outbox_id = ? AND status = ?',
+      whereArgs: [itemId, statusPending],
+      limit: 1,
+    );
+    if (rows.isEmpty) {
+      return (claimed: null, cascadeError: null);
+    }
+    final fresh = OutboxItem.fromMap(rows.first);
+    if (fresh.nextRetryAtMs > nowMs) {
+      return (claimed: null, cascadeError: null);
+    }
+
+    final barrier = await _evaluateBarrier(executor: txn, item: fresh);
+    if (barrier.failedCode case final reason?) {
+      final updated = await txn.update(
+        tableName,
+        <String, Object?>{
+          'status': statusFailedPermanent,
+          'last_error': 'PREDECESSOR_FAILED:$reason',
+        },
+        where: 'outbox_id = ? AND status = ? AND idempotency_key = ?',
+        whereArgs: [itemId, statusPending, fresh.idempotencyKey],
+      );
+      if (updated != 1) {
+        return (claimed: null, cascadeError: null);
+      }
+      await _reconcileFailureTxn(
+        txn: txn,
+        item: fresh,
+        nowMs: nowMs,
+        rollbackAllocations: true,
+      );
+      return (claimed: null, cascadeError: AppError.fromCode(reason));
+    }
+
+    if (barrier.blocked) {
+      return (claimed: null, cascadeError: null);
+    }
+
+    final updated = await txn.update(
+      tableName,
+      <String, Object?>{'status': statusInFlight},
+      where: 'outbox_id = ? AND status = ? AND idempotency_key = ?',
+      whereArgs: [itemId, statusPending, fresh.idempotencyKey],
+    );
+    if (updated != 1) {
+      return (claimed: null, cascadeError: null);
+    }
+    return (
+      claimed: fresh.copyWith(status: statusInFlight),
+      cascadeError: null,
+    );
+  });
 
   Future<OutboxItem?> _findCoalesceTarget({
     required DatabaseExecutor txn,
@@ -420,106 +616,282 @@ final class OutboxDispatcher({
     return incomingPayloadJson;
   }
 
-  Future<bool> _isBlockedByCausalBarrier(OutboxItem item) async {
+  Future<({bool blocked, String? failedCode})> _evaluateBarrier({
+    required DatabaseExecutor executor,
+    required OutboxItem item,
+  }) async {
     final date = item.activityDate;
     if (date == null) {
-      return false;
+      return (blocked: false, failedCode: null);
     }
 
-    final activeSameDate = await _database.database.query(
+    final outboxRows = await executor.query(
       tableName,
-      where: 'status IN (?, ?) AND outbox_id != ?',
-      whereArgs: [statusPending, statusInFlight, item.outboxId ?? -1],
+      where: 'outbox_id != ?',
+      whereArgs: [item.outboxId ?? -1],
+      orderBy: 'outbox_id ASC',
     );
+    final sameDateOthers = outboxRows
+        .map(OutboxItem.fromMap)
+        .where((other) => other.activityDate == date)
+        .toList();
 
-    for (final row in activeSameDate) {
-      final other = OutboxItem.fromMap(row);
-      if (other.activityDate != date) {
+    if (_isDailyStepsOp(item)) {
+      final hasInFlightSteps = sameDateOthers.any(
+        (other) => _isDailyStepsOp(other) && other.status == statusInFlight,
+      );
+      return (blocked: hasInFlightSteps, failedCode: null);
+    }
+
+    if (_isGpsBatchOp(item)) {
+      return await _evaluateGpsBatchBarrier(
+        executor: executor,
+        item: item,
+        date: date,
+        sameDateOthers: sameDateOthers,
+      );
+    }
+
+    if (_allocationBarrierOps.contains(item.operationType)) {
+      return await _evaluateAllocationBarrier(
+        executor: executor,
+        item: item,
+        date: date,
+        sameDateOthers: sameDateOthers,
+      );
+    }
+
+    return (blocked: false, failedCode: null);
+  }
+
+  Future<({bool blocked, String? failedCode})> _evaluateGpsBatchBarrier({
+    required DatabaseExecutor executor,
+    required OutboxItem item,
+    required String date,
+    required List<OutboxItem> sameDateOthers,
+  }) async {
+    final itemMinSeq = _extractMinSeqNo(item);
+    for (final other in sameDateOthers) {
+      if (_isDailyStepsOp(other)) {
+        if (other.status == statusFailedPermanent) {
+          return (
+            blocked: true,
+            failedCode: other.lastError ?? 'ANTIFRAUD_DAILY_STEP_CAP_EXCEEDED',
+          );
+        }
+        if (other.status == statusPending || other.status == statusInFlight) {
+          return (blocked: true, failedCode: null);
+        }
+      }
+      if (_isGpsBatchOp(other) && _isEarlierGpsBatch(other, item, itemMinSeq)) {
+        if (other.status == statusFailedPermanent) {
+          return (
+            blocked: true,
+            failedCode: other.lastError ?? 'TRACK_POINT_INVALID_GEOMETRY',
+          );
+        }
+        if (other.status == statusPending || other.status == statusInFlight) {
+          return (blocked: true, failedCode: null);
+        }
+      }
+    }
+
+    if (itemMinSeq != null) {
+      final earlierPoints = await executor.query(
+        'local_gps_track_points',
+        columns: const ['sync_status'],
+        where: 'activity_date = ? AND seq_no < ? AND sync_status != ?',
+        whereArgs: [date, itemMinSeq, 'synced'],
+        limit: 1,
+      );
+      if (earlierPoints.isNotEmpty) {
+        final status = earlierPoints.first['sync_status'] as String?;
+        if (status == 'failed') {
+          return (blocked: true, failedCode: 'TRACK_POINT_INVALID_GEOMETRY');
+        }
+        return (blocked: true, failedCode: null);
+      }
+    }
+
+    return (blocked: false, failedCode: null);
+  }
+
+  Future<({bool blocked, String? failedCode})> _evaluateAllocationBarrier({
+    required DatabaseExecutor executor,
+    required OutboxItem item,
+    required String date,
+    required List<OutboxItem> sameDateOthers,
+  }) async {
+    for (final other in sameDateOthers) {
+      if (_allocationPredecessorOps.contains(other.operationType)) {
+        if (other.status == statusFailedPermanent) {
+          return (
+            blocked: true,
+            failedCode: other.lastError ?? 'SEGMENT_SEQ_OUT_OF_BOUNDS',
+          );
+        }
+        if (other.status == statusPending || other.status == statusInFlight) {
+          return (blocked: true, failedCode: null);
+        }
+      }
+      if (_allocationBarrierOps.contains(other.operationType) &&
+          other.status == statusInFlight) {
+        return (blocked: true, failedCode: null);
+      }
+    }
+
+    if (item.operationType == 'upsert_segment_allocation') {
+      final intervals = await _resolveAllocationIntervals(
+        executor: executor,
+        date: date,
+        payloadMap: _decodeJsonMap(item.payloadJson),
+      );
+      for (final interval in intervals) {
+        final unsyncedPoints = await executor.query(
+          'local_gps_track_points',
+          columns: const ['sync_status'],
+          where: 'activity_date = ? AND seq_no BETWEEN ? AND ? AND sync_status != ?',
+          whereArgs: [date, interval.startSeq, interval.endSeq, 'synced'],
+          limit: 1,
+        );
+        if (unsyncedPoints.isNotEmpty) {
+          final status = unsyncedPoints.first['sync_status'] as String?;
+          if (status == 'failed') {
+            return (
+              blocked: true,
+              failedCode: 'SEGMENT_CONTAINS_VEHICLE_MOTION',
+            );
+          }
+          return (blocked: true, failedCode: null);
+        }
+      }
+    }
+
+    return (blocked: false, failedCode: null);
+  }
+
+  Future<List<({int startSeq, int endSeq})>> _resolveAllocationIntervals({
+    required DatabaseExecutor executor,
+    required String date,
+    required Map<String, Object?>? payloadMap,
+  }) async {
+    final rawAllocs = payloadMap?['allocations'];
+    if (rawAllocs is! List<Object?> || rawAllocs.isEmpty) {
+      return const [];
+    }
+    final intervals = <({int startSeq, int endSeq})>[];
+    final missingKeys = <String>[];
+    for (final alloc in rawAllocs) {
+      if (alloc is! Map<Object?, Object?>) {
         continue;
       }
-      if (item.operationType == 'upload_gps_track_batch' &&
-          other.operationType == 'sync_daily_steps') {
-        return true;
-      }
-      if (_allocationBarrierOps.contains(item.operationType) &&
-          _allocationPredecessorOps.contains(other.operationType)) {
-        return true;
+      final start = (alloc['start_seq_no'] as num?)?.toInt();
+      final end = (alloc['end_seq_no'] as num?)?.toInt();
+      if (start != null && end != null) {
+        intervals.add((startSeq: start, endSeq: end));
+      } else if (alloc['idempotency_key'] case final String key
+          when key.isNotEmpty) {
+        missingKeys.add(key);
       }
     }
-    return false;
+    if (missingKeys.isNotEmpty) {
+      final placeholders = List<String>.filled(
+        missingKeys.length,
+        '?',
+      ).join(',');
+      final rows = await executor.rawQuery(
+        'SELECT start_seq_no, end_seq_no FROM local_route_segment_allocations '
+        'WHERE activity_date = ? AND idempotency_key IN ($placeholders)',
+        <Object?>[date, ...missingKeys],
+      );
+      for (final row in rows) {
+        final start = (row['start_seq_no'] as num?)?.toInt();
+        final end = (row['end_seq_no'] as num?)?.toInt();
+        if (start != null && end != null) {
+          intervals.add((startSeq: start, endSeq: end));
+        }
+      }
+    }
+    return intervals;
+  }
+
+  static int? _extractMinSeqNo(OutboxItem item) {
+    final seqNos = _extractSeqNos(_decodeJsonMap(item.payloadJson));
+    if (seqNos.isEmpty) {
+      return null;
+    }
+    return seqNos.reduce(math.min);
+  }
+
+  static bool _isEarlierGpsBatch(
+    OutboxItem other,
+    OutboxItem current,
+    int? currentMinSeq,
+  ) {
+    final otherMinSeq = _extractMinSeqNo(other);
+    if (otherMinSeq != null && currentMinSeq != null) {
+      if (otherMinSeq != currentMinSeq) {
+        return otherMinSeq < currentMinSeq;
+      }
+    }
+    return (other.outboxId ?? 0) < (current.outboxId ?? 0);
   }
 
   Future<void> _applySendOutcome({
     required OutboxItem item,
     required OutboxSendResponse response,
-    int? nowMsOverride,
+    required int nowMs,
   }) async {
     final itemId = item.outboxId;
     if (itemId == null) {
       return;
     }
-    final nowMs = nowMsOverride ?? DateTime.now().millisecondsSinceEpoch;
 
     switch (response) {
       case OutboxSendSuccess(:final responseData):
         await _database.database.transaction((txn) async {
+          final deleted = await txn.delete(
+            tableName,
+            where: 'outbox_id = ? AND status = ? AND idempotency_key = ?',
+            whereArgs: [itemId, statusInFlight, item.idempotencyKey],
+          );
+          if (deleted != 1) {
+            return;
+          }
           await _reconcileSuccessTxn(
             txn: txn,
             item: item,
             responseData: responseData,
             nowMs: nowMs,
           );
-          await txn.delete(
-            tableName,
-            where: 'outbox_id = ?',
-            whereArgs: [itemId],
-          );
         });
       case OutboxSendRetryLater(:final code, :final retryAfterSec):
-        final nextRetry = item.retryCount + 1;
-        if (nextRetry >= item.maxRetries) {
-          await _database.database.transaction((txn) async {
-            await txn.update(
-              tableName,
-              <String, Object?>{
-                'status': statusFailedPermanent,
-                'retry_count': nextRetry,
-                'last_error': 'MAX_RETRIES_EXHAUSTED',
-              },
-              where: 'outbox_id = ?',
-              whereArgs: [itemId],
-            );
-            await _reconcileFailureTxn(
-              txn: txn,
-              item: item,
-              nowMs: nowMs,
-              rollbackAllocations: false,
-            );
-          });
-          onPermanentError?.call(AppError.fromCode(code));
+        if (item.operationType == 'send_friend_wakeup_nudge' &&
+            (code == 'RATE_LIMIT_EXCEEDED' ||
+                code == 'WAKEUP_NUDGE_DAILY_COOLDOWN')) {
+          await _markPermanentFailure(
+            item: item,
+            error: AppError.fromCode(code),
+            nowMs: nowMs,
+          );
           return;
         }
-        final delayMs = retryAfterSec != null
-            ? retryAfterSec * 1000
-            : calcBackoffWithJitterMs(nextRetry);
-        await _database.database.update(
-          tableName,
-          <String, Object?>{
-            'status': statusPending,
-            'retry_count': nextRetry,
-            'next_retry_at_ms': nowMs + delayMs,
-            'last_error': code,
-          },
-          where: 'outbox_id = ?',
-          whereArgs: [itemId],
+        await _applyRetryLaterOutcome(
+          item: item,
+          code: code,
+          retryAfterSec: retryAfterSec,
+          nowMs: nowMs,
         );
       case OutboxSendRequiresGate(:final error):
-        await _database.database.update(
+        final updated = await _database.database.update(
           tableName,
           <String, Object?>{'status': statusPending, 'last_error': error.code},
-          where: 'outbox_id = ?',
-          whereArgs: [itemId],
+          where: 'outbox_id = ? AND status = ? AND idempotency_key = ?',
+          whereArgs: [itemId, statusInFlight, item.idempotencyKey],
         );
+        if (updated != 1) {
+          return;
+        }
         if (error.clientAction == ClientErrorAction.forceLogout) {
           stopWorker();
           onForceLogout?.call();
@@ -528,24 +900,175 @@ final class OutboxDispatcher({
           onGateError?.call(error);
         }
       case OutboxSendPermanentFailure(:final error):
-        await _database.database.transaction((txn) async {
-          await txn.update(
-            tableName,
-            <String, Object?>{
-              'status': statusFailedPermanent,
-              'last_error': error.code,
-            },
-            where: 'outbox_id = ?',
-            whereArgs: [itemId],
-          );
-          await _reconcileFailureTxn(
-            txn: txn,
-            item: item,
-            nowMs: nowMs,
-            rollbackAllocations: true,
-          );
-        });
-        onPermanentError?.call(error);
+        await _markPermanentFailure(item: item, error: error, nowMs: nowMs);
+    }
+  }
+
+  Future<void> _applyRetryLaterOutcome({
+    required OutboxItem item,
+    required String code,
+    required int? retryAfterSec,
+    required int nowMs,
+  }) async {
+    final itemId = item.outboxId;
+    if (itemId == null) {
+      return;
+    }
+    final nextRetry = item.retryCount + 1;
+    if (nextRetry >= item.maxRetries) {
+      final applied = await _database.database.transaction((txn) async {
+        final updated = await txn.update(
+          tableName,
+          <String, Object?>{
+            'status': statusFailedPermanent,
+            'retry_count': nextRetry,
+            'last_error': 'MAX_RETRIES_EXHAUSTED',
+          },
+          where: 'outbox_id = ? AND status = ? AND idempotency_key = ?',
+          whereArgs: [itemId, statusInFlight, item.idempotencyKey],
+        );
+        if (updated != 1) {
+          return false;
+        }
+        await _reconcileFailureTxn(
+          txn: txn,
+          item: item,
+          nowMs: nowMs,
+          rollbackAllocations: false,
+        );
+        await _cascadeFailDependentsTxn(
+          txn: txn,
+          failedItem: item,
+          errorCode: 'MAX_RETRIES_EXHAUSTED',
+          nowMs: nowMs,
+        );
+        return true;
+      });
+      if (applied) {
+        onPermanentError?.call(AppError.fromCode(code));
+      }
+      return;
+    }
+
+    final delayMs = retryAfterSec != null
+        ? retryAfterSec * 1000
+        : calcBackoffWithJitterMs(nextRetry);
+    await _database.database.update(
+      tableName,
+      <String, Object?>{
+        'status': statusPending,
+        'retry_count': nextRetry,
+        'next_retry_at_ms': nowMs + delayMs,
+        'last_error': code,
+      },
+      where: 'outbox_id = ? AND status = ? AND idempotency_key = ?',
+      whereArgs: [itemId, statusInFlight, item.idempotencyKey],
+    );
+  }
+
+  Future<void> _markPermanentFailure({
+    required OutboxItem item,
+    required AppError error,
+    required int nowMs,
+  }) async {
+    final itemId = item.outboxId;
+    if (itemId == null) {
+      return;
+    }
+    final applied = await _database.database.transaction((txn) async {
+      final updated = await txn.update(
+        tableName,
+        <String, Object?>{
+          'status': statusFailedPermanent,
+          'last_error': error.code,
+        },
+        where: 'outbox_id = ? AND status = ? AND idempotency_key = ?',
+        whereArgs: [itemId, statusInFlight, item.idempotencyKey],
+      );
+      if (updated != 1) {
+        return false;
+      }
+      await _reconcileFailureTxn(
+        txn: txn,
+        item: item,
+        nowMs: nowMs,
+        rollbackAllocations: true,
+      );
+      await _cascadeFailDependentsTxn(
+        txn: txn,
+        failedItem: item,
+        errorCode: error.code,
+        nowMs: nowMs,
+      );
+      return true;
+    });
+    if (applied) {
+      onPermanentError?.call(error);
+    }
+  }
+
+  Future<void> _cascadeFailDependentsTxn({
+    required Transaction txn,
+    required OutboxItem failedItem,
+    required String errorCode,
+    required int nowMs,
+  }) async {
+    final date = failedItem.activityDate;
+    if (date == null) {
+      return;
+    }
+    final isStepsFailure = _isDailyStepsOp(failedItem);
+    final isGpsFailure = _isGpsBatchOp(failedItem);
+    if (!isStepsFailure && !isGpsFailure) {
+      return;
+    }
+
+    final pendingRows = await txn.query(
+      tableName,
+      where: 'status = ? AND outbox_id != ?',
+      whereArgs: [statusPending, failedItem.outboxId ?? -1],
+      orderBy: 'outbox_id ASC',
+    );
+    final failedMinSeq = _extractMinSeqNo(failedItem);
+
+    for (final row in pendingRows) {
+      final dep = OutboxItem.fromMap(row);
+      if (dep.activityDate != date) {
+        continue;
+      }
+      final shouldCascade = isStepsFailure
+          ? (_isGpsBatchOp(dep) ||
+                _allocationBarrierOps.contains(dep.operationType))
+          : (_allocationBarrierOps.contains(dep.operationType) ||
+                (_isGpsBatchOp(dep) &&
+                    _isEarlierGpsBatch(
+                      failedItem,
+                      dep,
+                      _extractMinSeqNo(dep),
+                    ) &&
+                    (failedMinSeq == null ||
+                        _extractMinSeqNo(dep) == null ||
+                        (_extractMinSeqNo(dep) ?? 0) >= failedMinSeq)));
+      if (!shouldCascade) {
+        continue;
+      }
+      final updated = await txn.update(
+        tableName,
+        <String, Object?>{
+          'status': statusFailedPermanent,
+          'last_error': 'PREDECESSOR_FAILED:$errorCode',
+        },
+        where: 'outbox_id = ? AND status = ? AND idempotency_key = ?',
+        whereArgs: [dep.outboxId, statusPending, dep.idempotencyKey],
+      );
+      if (updated == 1) {
+        await _reconcileFailureTxn(
+          txn: txn,
+          item: dep,
+          nowMs: nowMs,
+          rollbackAllocations: true,
+        );
+      }
     }
   }
 

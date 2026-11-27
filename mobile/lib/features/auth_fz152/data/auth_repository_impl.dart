@@ -40,31 +40,53 @@ final class AuthRepositoryImpl(
     }
 
     final cachedProfile = await _profileRepo.getCachedProfileSnapshot();
+    final storedProviderRaw = await _tokenStore.getAuthProvider();
+    final storedProvider = storedProviderRaw != null
+        ? AuthProviderType.fromWire(storedProviderRaw)
+        : null;
+    final storedLabMode = await _tokenStore.getIsForeignLabMode();
+    final storedExpiresIn = await _tokenStore.getExpiresInSeconds();
+    var resolvedExpiresIn = storedExpiresIn ?? 900;
 
     final profileRes = await _dioClient.get<UserProfile>(
       '/api/v1/users/me',
-      parser: (data) => _parseOrThrow(
-        data,
-        (map) => UserProfile.fromJson(
+      parser: (data) => _parseOrThrow(data, (map) {
+        if (map['expires_in_seconds'] case final num rawExpires) {
+          resolvedExpiresIn = rawExpires.toInt();
+        }
+        final hasServerProvider = map['auth_provider'] is String;
+        final hasServerLabMode = map['is_foreign_provider_lab_mode'] is bool;
+        return UserProfile.fromJson(
           map,
-          authProviderOverride: cachedProfile?.authProvider,
-          isForeignLabModeOverride: cachedProfile?.isForeignProviderLabMode,
-        ),
-      ),
+          authProviderOverride: hasServerProvider
+              ? null
+              : (cachedProfile?.authProvider ?? storedProvider),
+          isForeignLabModeOverride: hasServerLabMode
+              ? null
+              : (cachedProfile?.isForeignProviderLabMode ?? storedLabMode),
+        );
+      }),
     );
 
     switch (profileRes) {
       case Ok(:final value):
+        await _tokenStore.saveTokens(
+          accessToken: accessToken,
+          refreshToken: refreshToken,
+          expiresInSeconds: resolvedExpiresIn,
+          authProvider: value.authProvider.wireName,
+          isForeignProviderLabMode: value.isForeignProviderLabMode,
+        );
         await _profileRepo.cacheProfile(
           value,
-          authProvider: cachedProfile?.authProvider,
-          isForeignLabMode: cachedProfile?.isForeignProviderLabMode,
+          authProvider: value.authProvider,
+          isForeignLabMode: value.isForeignProviderLabMode,
         );
         return Ok(
           AuthSession(
             accessToken: accessToken,
             refreshToken: refreshToken,
-            expiresInSeconds: 900,
+            expiresInSeconds: resolvedExpiresIn,
             isForeignProviderLabMode: value.isForeignProviderLabMode,
             labModeWarningBanner: value.isForeignProviderLabMode
                 ? _defaultGoogleLabBanner
@@ -74,13 +96,16 @@ final class AuthRepositoryImpl(
         );
       case Err(:final error):
         if (_isOfflineError(error) && cachedProfile != null) {
+          final offlineLabMode =
+              cachedProfile.isForeignProviderLabMode ||
+              (storedLabMode ?? false);
           return Ok(
             AuthSession(
               accessToken: accessToken,
               refreshToken: refreshToken,
-              expiresInSeconds: 900,
-              isForeignProviderLabMode: cachedProfile.isForeignProviderLabMode,
-              labModeWarningBanner: cachedProfile.isForeignProviderLabMode
+              expiresInSeconds: resolvedExpiresIn,
+              isForeignProviderLabMode: offlineLabMode,
+              labModeWarningBanner: offlineLabMode
                   ? _defaultGoogleLabBanner
                   : null,
               user: cachedProfile,
@@ -135,6 +160,9 @@ final class AuthRepositoryImpl(
       await _tokenStore.saveTokens(
         accessToken: value.accessToken,
         refreshToken: value.refreshToken,
+        expiresInSeconds: value.expiresInSeconds,
+        authProvider: provider.wireName,
+        isForeignProviderLabMode: value.isForeignProviderLabMode,
       );
       await _profileRepo.cacheProfile(
         value.user,
@@ -212,14 +240,18 @@ final class AuthRepositoryImpl(
 
   @override
   Future<Result<void, AppError>> logout() async {
+    final accessToken = await _tokenStore.getAccessToken();
     final refreshToken = await _tokenStore.getRefreshToken();
-    await _pushProvider.unregisterCurrentToken();
-    if (refreshToken != null && refreshToken.length >= 32) {
-      await _dioClient.post<void>(
-        '/api/v1/auth/logout',
-        data: {'refresh_token': refreshToken},
-        parser: (_) {},
-      );
+    final hasValidAccess = accessToken != null && accessToken.isNotEmpty;
+    if (hasValidAccess) {
+      await _pushProvider.unregisterCurrentToken();
+      if (refreshToken != null && refreshToken.length >= 32) {
+        await _dioClient.post<void>(
+          '/api/v1/auth/logout',
+          data: {'refresh_token': refreshToken},
+          parser: _ignoreResponse,
+        );
+      }
     }
     await _clearLocalSession();
     if (!_sessionEndedController.isClosed) {
@@ -227,6 +259,9 @@ final class AuthRepositoryImpl(
     }
     return const Ok(null);
   }
+
+  @override
+  Future<void> clearLocalSessionOnly() => _clearLocalSession();
 
   @override
   Future<bool> hasCompletedOnboarding() async {
@@ -241,10 +276,18 @@ final class AuthRepositoryImpl(
   }
 
   Future<void> _clearLocalSession() async {
-    await _tokenStore.clearAll();
+    await _tokenStore.clearTokens();
     final prefs = await SharedPreferences.getInstance();
+    final onboardingSeen = prefs.getBool(_onboardingSeenKey) ?? false;
     await prefs.clear();
+    if (onboardingSeen) {
+      await prefs.setBool(_onboardingSeenKey, true);
+    }
     await _profileRepo.clearAllLocalUserData();
+  }
+
+  static void _ignoreResponse(Object? _) {
+    return;
   }
 
   Future<void> _registerPushTokenBestEffort(String deviceId) async {

@@ -29,13 +29,14 @@ final class FriendsSqliteDao(
     final today = todayIsoLocal();
     final friends = <FriendProfileSummary>[];
     final incoming = <FriendProfileSummary>[];
+    final outgoing = <FriendProfileSummary>[];
     for (final row in rows) {
       final status = FriendshipStatus.fromWire(
         row['friendship_status'] as String?,
       );
-      final lastNudge = row['last_nudge_date'] as String?;
+      final meta = _parseMeta(row['last_nudge_date'] as String?);
       final summary = FriendProfileSummary(
-        friendshipId: row['friend_user_id'] as String? ?? '',
+        friendshipId: meta.friendshipId ?? '',
         userId: row['friend_user_id'] as String? ?? '',
         displayName: row['display_name'] as String? ?? 'Друг',
         avatarUrl: row['avatar_url'] as String?,
@@ -47,31 +48,46 @@ final class FriendsSqliteDao(
         weeklyCo2SavedGrams:
             (row['weekly_co2_saved_grams'] as num?)?.toInt() ?? 0,
         weeklySteps: (row['weekly_steps'] as num?)?.toInt() ?? 0,
-        canSendWakeupNudgeToday: lastNudge != today,
+        canSendWakeupNudgeToday: meta.nudgeDate != today,
       );
       if (status == .accepted) {
         friends.add(summary);
       } else if (status == .pending) {
-        incoming.add(summary);
+        if (meta.direction == 'outgoing') {
+          outgoing.add(summary);
+        } else {
+          incoming.add(summary);
+        }
       }
     }
     return FriendsOverviewResponse(
       myFriendCode: myFriendCode,
       friends: friends,
       incomingRequests: incoming,
-      outgoingRequests: const [],
+      outgoingRequests: outgoing,
     );
   }
 
   Future<void> replaceCachedFriends(FriendsOverviewResponse overview) async {
     final nowMs = DateTime.now().millisecondsSinceEpoch;
     final today = todayIsoLocal();
+    final entries = <({FriendProfileSummary friend, String direction})>[
+      for (final friend in overview.friends)
+        (friend: friend, direction: 'accepted'),
+      for (final friend in overview.incomingRequests)
+        (friend: friend, direction: 'incoming'),
+      for (final friend in overview.outgoingRequests)
+        (friend: friend, direction: 'outgoing'),
+    ];
     await _db.database.transaction((txn) async {
       await txn.delete('cached_friends_leaderboard');
-      for (final friend in [
-        ...overview.friends,
-        ...overview.incomingRequests,
-      ]) {
+      for (final entry in entries) {
+        final friend = entry.friend;
+        final metaPayload = _encodeMeta(
+          friendshipId: friend.friendshipId,
+          direction: entry.direction,
+          nudgeDate: friend.canSendWakeupNudgeToday ? null : today,
+        );
         await txn.insert('cached_friends_leaderboard', {
           'friend_user_id': friend.userId,
           'display_name': friend.displayName,
@@ -83,7 +99,7 @@ final class FriendsSqliteDao(
           'current_streak_days': friend.currentStreakDays,
           'equipped_accessory_code': friend.equippedAccessoryCode,
           'is_stats_visible': friend.isStatsVisibleToFriends ? 1 : 0,
-          'last_nudge_date': friend.canSendWakeupNudgeToday ? null : today,
+          'last_nudge_date': metaPayload,
           'updated_at_ms': nowMs,
         }, conflictAlgorithm: ConflictAlgorithm.replace);
       }
@@ -91,15 +107,67 @@ final class FriendsSqliteDao(
   }
 
   Future<void> markNudgedToday(String friendUserId, String nudgeDate) async {
+    final existing = await _db.database.query(
+      'cached_friends_leaderboard',
+      columns: ['last_nudge_date'],
+      where: 'friend_user_id = ?',
+      whereArgs: [friendUserId],
+      limit: 1,
+    );
+    final prevMeta = existing.isNotEmpty
+        ? _parseMeta(existing.first['last_nudge_date'] as String?)
+        : (friendshipId: null, direction: null, nudgeDate: null);
+    final updatedPayload =
+        prevMeta.friendshipId != null || prevMeta.direction != null
+        ? _encodeMeta(
+            friendshipId: prevMeta.friendshipId,
+            direction: prevMeta.direction,
+            nudgeDate: nudgeDate,
+          )
+        : nudgeDate;
     await _db.database.update(
       'cached_friends_leaderboard',
       {
-        'last_nudge_date': nudgeDate,
+        'last_nudge_date': updatedPayload,
         'updated_at_ms': DateTime.now().millisecondsSinceEpoch,
       },
       where: 'friend_user_id = ?',
       whereArgs: [friendUserId],
     );
+  }
+
+  static String _encodeMeta({
+    required String? friendshipId,
+    required String? direction,
+    required String? nudgeDate,
+  }) => jsonEncode(<String, Object?>{
+    if (friendshipId != null && friendshipId.isNotEmpty)
+      'friendship_id': friendshipId,
+    if (direction != null && direction.isNotEmpty) 'direction': direction,
+    if (nudgeDate != null && nudgeDate.isNotEmpty) 'nudge_date': nudgeDate,
+  });
+
+  static ({String? friendshipId, String? direction, String? nudgeDate})
+  _parseMeta(String? raw) {
+    if (raw == null || raw.isEmpty) {
+      return (friendshipId: null, direction: null, nudgeDate: null);
+    }
+    if (!raw.startsWith('{')) {
+      return (friendshipId: null, direction: null, nudgeDate: raw);
+    }
+    try {
+      final decoded = jsonDecode(raw);
+      if (decoded is Map<Object?, Object?>) {
+        return (
+          friendshipId: decoded['friendship_id'] as String?,
+          direction: decoded['direction'] as String?,
+          nudgeDate: decoded['nudge_date'] as String?,
+        );
+      }
+    } on FormatException {
+      return (friendshipId: null, direction: null, nudgeDate: null);
+    }
+    return (friendshipId: null, direction: null, nudgeDate: null);
   }
 
   Future<void> removeCachedFriend(String friendUserId) async {

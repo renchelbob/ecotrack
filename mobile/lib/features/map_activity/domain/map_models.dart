@@ -1030,3 +1030,45 @@ abstract interface class MapActivityRepository() {
   Future<({double lat, double lon, double accuracy})?>
   getLastKnownOrCurrentPosition();
 }
+
+final class const TileCacheEntryRecord({
+  required final String key,
+  required final String url,
+  required final int statusCode,
+  required final int priorityIndex,
+  required final int requestDateMs,
+  required final int responseDateMs,
+  final int? dateMs,
+  final int? expiresMs,
+  final int? maxStaleMs,
+  final String? eTag,
+  final String? lastModified,
+  final List<int>? content,
+  final List<int>? headers,
+  required final int ccMaxAge,
+  required final int ccMaxStale,
+  required final int ccMinFresh,
+  required final bool ccMustRevalidate,
+  required final bool ccNoCache,
+  required final bool ccNoStore,
+  final String? ccPrivacy,
+  final List<String> ccOther = const <String>[],
+});
+
+abstract interface class TileCacheStorage() {
+  Future<bool> exists(String key);
+  Future<TileCacheEntryRecord?> getRecord(String key);
+  Future<List<TileCacheEntryRecord>> getAllRecords();
+  Future<void> upsertRecord(TileCacheEntryRecord record);
+  Future<void> deleteRecord(String key, {bool staleOnly = false});
+  Future<void> deleteRecords(List<String> keys);
+  Future<void> cleanRecords({
+    required int maxPriorityIndex,
+    bool staleOnly = false,
+  });
+  Future<void> closeStorage();
+}
+
+abstract interface class TileCacheStorageProvider() {
+  TileCacheStorage get tileCacheStorage;
+}

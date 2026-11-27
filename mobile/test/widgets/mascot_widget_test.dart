@@ -47,7 +47,7 @@ void main() {
             home: Scaffold(
               body: Center(
                 child: FoxMascotWidget(
-                  mood: MascotMoodState.happy,
+                  mood: .happy,
                   onSquintingChanged: squintingEvents.add,
                   onTap: () => tapCount++,
                 ),
@@ -104,7 +104,7 @@ void main() {
             home: Scaffold(
               body: Center(
                 child: FoxMascotWidget(
-                  mood: MascotMoodState.thriving,
+                  mood: .thriving,
                   equippedAccessoryCode: code,
                 ),
               ),
@@ -129,7 +129,7 @@ void main() {
 
     test('MascotVectorPainter shouldRepaint responds to visual deltas', () {
       const base = MascotVectorPainter(
-        mood: MascotMoodState.neutral,
+        mood: .neutral,
         breathingPhase: 0.25,
         equippedAccessoryCode: 'solar_shades',
       );
@@ -137,7 +137,7 @@ void main() {
       expect(
         base.shouldRepaint(
           const MascotVectorPainter(
-            mood: MascotMoodState.thriving,
+            mood: .thriving,
             breathingPhase: 0.25,
             equippedAccessoryCode: 'solar_shades',
           ),
@@ -147,7 +147,7 @@ void main() {
       expect(
         base.shouldRepaint(
           const MascotVectorPainter(
-            mood: MascotMoodState.neutral,
+            mood: .neutral,
             breathingPhase: 0.75,
             equippedAccessoryCode: 'solar_shades',
           ),
@@ -157,7 +157,7 @@ void main() {
       expect(
         base.shouldRepaint(
           const MascotVectorPainter(
-            mood: MascotMoodState.neutral,
+            mood: .neutral,
             breathingPhase: 0.25,
             equippedAccessoryCode: 'moss_crown',
           ),
@@ -167,7 +167,7 @@ void main() {
       expect(
         base.shouldRepaint(
           const MascotVectorPainter(
-            mood: MascotMoodState.neutral,
+            mood: .neutral,
             breathingPhase: 0.25,
             equippedAccessoryCode: 'solar_shades',
             isPointerSquinting: true,

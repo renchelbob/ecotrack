@@ -181,7 +181,8 @@ final class _Fz152ConsentResolutionScreenState()
     canPop: false,
     child: BlocConsumer<AuthBloc, AuthState>(
       listener: (context, state) {
-        if (state case AuthConsentResolutionRequired(:final inlineError?)) {
+        if (state case AuthConsentResolutionRequired(:final inlineError?)
+            when inlineError.clientAction != .showInline) {
           EcoErrorBannerPresenter.show(context, inlineError);
         } else if (state case AuthError(:final error)) {
           EcoErrorBannerPresenter.show(context, error);

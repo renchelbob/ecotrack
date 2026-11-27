@@ -90,6 +90,7 @@ flutter:
 
   assets:
     - assets/db/client_sqlite_schema.sql
+    - assets/db/tile_cache_schema.sql
     - assets/errors/error_catalog.json
     - assets/vectors/
     - assets/fonts/

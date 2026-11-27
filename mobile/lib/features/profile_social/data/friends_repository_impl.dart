@@ -85,14 +85,17 @@ final class FriendsRepositoryImpl(
 
   @override
   Future<Result<void, AppError>> removeFriend(String friendUserId) async {
-    final result = await _dioClient.delete<void>(
+    final result = await _dioClient.delete<bool>(
       '/api/v1/friends/$friendUserId',
-      parser: (_) {},
+      parser: (_) => true,
     );
-    if (result case Ok()) {
-      await _friendsDao.removeCachedFriend(friendUserId);
+    switch (result) {
+      case Ok():
+        await _friendsDao.removeCachedFriend(friendUserId);
+        return const Ok(null);
+      case Err(:final error):
+        return Err(error);
     }
-    return result;
   }
 
   @override

@@ -178,6 +178,10 @@ final class const AuthSession({
 
 abstract interface class const AuthSessionNotifier() {
   Stream<void> get onSessionEnded;
+
+  /// Clears local session tokens and user data without performing remote
+  /// logout or push-token unregistration calls (used on forced 401 logout).
+  Future<void> clearLocalSessionOnly();
 }
 
 abstract interface class const AuthRepository() {

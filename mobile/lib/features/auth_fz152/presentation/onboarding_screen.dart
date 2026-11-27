@@ -32,6 +32,7 @@ final class _OnboardingScreenState() extends State<OnboardingScreen> {
   late final PageController _pageController;
   int _currentPage = 0;
   bool _stepsPermissionGranted = false;
+  String? _stepsPermissionError;
   bool _gpsTrackingConsent = false;
   bool _fz152ConsentAccepted = false;
 
@@ -83,7 +84,10 @@ final class _OnboardingScreenState() extends State<OnboardingScreen> {
     final callback = widget.onRequestStepsPermission;
     final granted = callback == null || await callback();
     if (mounted) {
-      setState(() => _stepsPermissionGranted = granted);
+      setState(() {
+        _stepsPermissionGranted = granted;
+        _stepsPermissionError = granted ? null : 'Доступ не выдан. Разрешите доступ к физической активности и Health Connect.';
+      });
     }
   }
 
@@ -136,6 +140,7 @@ final class _OnboardingScreenState() extends State<OnboardingScreen> {
           _OnboardingStepTwo(
             mascotBuilder: widget.mascotBuilder,
             stepsGranted: _stepsPermissionGranted,
+            stepsError: _stepsPermissionError,
             gpsEnabled: _gpsTrackingConsent,
             onRequestSteps: () => unawaited(_requestStepAccess()),
             onGpsChanged: (val) => unawaited(_toggleGps(val)),
@@ -265,52 +270,40 @@ final class const _OnboardingStepOne({
 
 final class const _FeaturePhraseList() extends StatelessWidget {
   @override
-  Widget build(BuildContext context) => const Column(
-    mainAxisSize: .min,
-    children: [
-      Text(
-        'сокращай углеродный след',
-        textAlign: .center,
-        style: TextStyle(
-          fontFamily: 'Inter',
-          fontSize: 16.5,
-          fontWeight: .w400,
-          color: EcoColors.inkPrimary,
+  Widget build(BuildContext context) {
+    final phraseStyle = EcoTypography.bodyLarge.copyWith(
+      fontSize: 16.5,
+      fontWeight: .w400,
+    );
+    return Column(
+      mainAxisSize: .min,
+      children: [
+        Text(
+          'сокращай углеродный след',
+          textAlign: .center,
+          style: phraseStyle,
         ),
-      ),
-      SizedBox(height: 8),
-      Icon(LucideIcons.leaf, size: 22, color: Color(0xFFC0C0C0)),
-      SizedBox(height: 8),
-      Text(
-        'поддерживай эко-привычки',
-        textAlign: .center,
-        style: TextStyle(
-          fontFamily: 'Inter',
-          fontSize: 16.5,
-          fontWeight: .w400,
-          color: EcoColors.inkPrimary,
+        const SizedBox(height: 8),
+        const Icon(LucideIcons.leaf, size: 22, color: Color(0xFFC0C0C0)),
+        const SizedBox(height: 8),
+        Text(
+          'поддерживай эко-привычки',
+          textAlign: .center,
+          style: phraseStyle,
         ),
-      ),
-      SizedBox(height: 8),
-      Icon(LucideIcons.leaf, size: 22, color: Color(0xFFC0C0C0)),
-      SizedBox(height: 8),
-      Text(
-        'получай бонусы и скидки',
-        textAlign: .center,
-        style: TextStyle(
-          fontFamily: 'Inter',
-          fontSize: 16.5,
-          fontWeight: .w400,
-          color: EcoColors.inkPrimary,
-        ),
-      ),
-    ],
-  );
+        const SizedBox(height: 8),
+        const Icon(LucideIcons.leaf, size: 22, color: Color(0xFFC0C0C0)),
+        const SizedBox(height: 8),
+        Text('получай бонусы и скидки', textAlign: .center, style: phraseStyle),
+      ],
+    );
+  }
 }
 
 final class const _OnboardingStepTwo({
   required final MascotWidgetBuilder? mascotBuilder,
   required final bool stepsGranted,
+  required final String? stepsError,
   required final bool gpsEnabled,
   required final VoidCallback onRequestSteps,
   required final ValueChanged<bool> onGpsChanged,
@@ -377,6 +370,7 @@ final class const _OnboardingStepTwo({
                               const SizedBox(height: 18),
                               _StepSensorAccessCard(
                                 stepsGranted: stepsGranted,
+                                stepsError: stepsError,
                                 onRequestSteps: onRequestSteps,
                               ),
                               const SizedBox(height: 12),
@@ -439,6 +433,7 @@ final class const _SkipStepButton({required final VoidCallback onPressed})
 
 final class const _StepSensorAccessCard({
   required final bool stepsGranted,
+  required final String? stepsError,
   required final VoidCallback onRequestSteps,
 }) extends StatelessWidget {
   @override
@@ -468,6 +463,16 @@ final class const _StepSensorAccessCard({
             ),
             label: Text(stepsGranted ? 'Доступ разрешён' : 'Запросить доступ'),
           ),
+          if (stepsError case final err? when !stepsGranted) ...[
+            const SizedBox(height: 8),
+            Text(
+              err,
+              style: EcoTypography.bodyMedium.copyWith(
+                color: EcoColors.inkPrimary,
+                fontSize: 12,
+              ),
+            ),
+          ],
         ],
       ),
     ),
@@ -530,7 +535,13 @@ final class const _OnboardingStepThree({
     builder: (context, authState) {
       final loadingProvider = switch (authState) {
         AuthAuthenticating(:final activeProvider) => activeProvider,
-        _ => null,
+        AuthInitial() ||
+        AuthOnboardingRequired() ||
+        AuthUnauthenticated() ||
+        AuthGooglePhoneRequired() ||
+        AuthConsentResolutionRequired() ||
+        AuthAuthenticated() ||
+        AuthError() => null,
       };
       final anyLoading = authState is AuthAuthenticating;
 
@@ -578,13 +589,22 @@ final class const _OnboardingStepThree({
                               text: 'Обменивайте накопленные баллы на скидки и промокоды от наших партнёров',
                             ),
                             const SizedBox(height: 10),
-                            Align(
-                              alignment: .centerLeft,
-                              child: Padding(
-                                padding: const .only(left: 18),
-                                child: _StepThreeMascotCircle(
-                                  mascotBuilder: mascotBuilder,
-                                ),
+                            Padding(
+                              padding: const .only(left: 18, right: 16),
+                              child: Row(
+                                crossAxisAlignment: .end,
+                                children: [
+                                  _StepThreeMascotCircle(
+                                    mascotBuilder: mascotBuilder,
+                                  ),
+                                  const SizedBox(width: 10),
+                                  const Flexible(
+                                    child: Padding(
+                                      padding: .only(bottom: 18),
+                                      child: _StartBonusBadge(),
+                                    ),
+                                  ),
+                                ],
                               ),
                             ),
                             const Spacer(),
@@ -716,6 +736,29 @@ final class const _StepThreeMascotCircle({
   );
 }
 
+final class const _StartBonusBadge() extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) => DecoratedBox(
+    decoration: const BoxDecoration(
+      color: EcoColors.surfacePrimary,
+      borderRadius: .all(.circular(999)),
+      border: .fromBorderSide(
+        BorderSide(color: EcoColors.inkPrimary, width: 1.5),
+      ),
+    ),
+    child: Padding(
+      padding: const .symmetric(horizontal: 12, vertical: 6),
+      child: Text(
+        '+100 ★ за старт',
+        style: EcoTypography.labelSmall.copyWith(
+          color: EcoColors.inkPrimary,
+          fontWeight: .w700,
+        ),
+      ),
+    ),
+  );
+}
+
 final class const _WireframePercentGiftBox() extends StatelessWidget {
   @override
   Widget build(BuildContext context) => SizedBox(
@@ -820,12 +863,9 @@ final class const _EdgeAttachedPill({
           child: Text(
             text,
             textAlign: .center,
-            style: const TextStyle(
-              fontFamily: 'Inter',
+            style: EcoTypography.bodyMedium.copyWith(
               fontSize: 15,
-              fontWeight: .w400,
               height: 1.35,
-              color: EcoColors.inkPrimary,
             ),
           ),
         ),
@@ -856,15 +896,10 @@ final class const _ConsentBox({
         child: Row(
           children: [
             Checkbox(value: accepted, onChanged: (v) => onChanged(v ?? false)),
-            const Expanded(
+            Expanded(
               child: Text(
                 'Я согласен на обработку персональных данных',
-                style: TextStyle(
-                  fontFamily: 'Inter',
-                  fontSize: 13.5,
-                  fontWeight: .w400,
-                  color: EcoColors.inkPrimary,
-                ),
+                style: EcoTypography.bodyMedium.copyWith(fontSize: 13.5),
               ),
             ),
             IconButton(
@@ -951,8 +986,7 @@ final class const _WireframeActionButton({
                 children: [
                   Text(
                     label,
-                    style: TextStyle(
-                      fontFamily: 'Inter',
+                    style: EcoTypography.bodyLarge.copyWith(
                       fontSize: 17,
                       fontWeight: .w400,
                       color: fgColor,

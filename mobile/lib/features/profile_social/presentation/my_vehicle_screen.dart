@@ -196,7 +196,7 @@ final class const _VehicleFormBody({
           child: Padding(
             padding: const .all(14),
             child: Text(
-              'Расчётный выброс вашего авто: ${previewGPerKm.toStringAsFixed(1)} г CO₂ / км (${previewGPerM.toStringAsFixed(4)} г / м)',
+              'Расчётный выброс вашего авто: ${previewGPerKm.toStringAsFixed(2)} г CO₂ / км (${previewGPerM.toStringAsFixed(5)} г / м)',
               style: EcoTypography.tabularMetric,
             ),
           ),

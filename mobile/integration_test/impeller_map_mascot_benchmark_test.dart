@@ -57,7 +57,7 @@ UserProfile _benchmarkProfile() => const UserProfile(
   isGpsTrackingEnabled: false,
   isStatsVisibleToFriends: true,
   is152fzConsentActive: true,
-  mascot: MascotVisualState(
+  mascot: .new(
     mood: .thriving,
     dailyGoalProgressRatio: 0.95,
     equippedAccessoryCode: 'firefly_aura',
@@ -96,10 +96,12 @@ final class _OfflineTileHttpClient() implements HttpClient {
       _OfflineTileRequest(url);
 
   @override
-  void close({bool force = false}) {}
+  void close({bool force = false}) {
+    return;
+  }
 
   @override
-  Object? noSuchMethod(Invocation invocation) =>
+  Never noSuchMethod(Invocation invocation) =>
       throw UnimplementedError('HttpClient.${invocation.memberName}');
 }
 
@@ -135,17 +137,19 @@ final class _OfflineTileRequest(final Uri _uri) implements HttpClientRequest {
   Future<HttpClientResponse> close() async => _OfflineTileResponse();
 
   @override
-  void add(List<int> data) {}
+  void add(List<int> data) {
+    return;
+  }
 
   @override
-  Object? noSuchMethod(Invocation invocation) =>
+  Never noSuchMethod(Invocation invocation) =>
       throw UnimplementedError('HttpClientRequest.${invocation.memberName}');
 }
 
 final class _OfflineTileResponse()
     extends Stream<List<int>>
     implements HttpClientResponse {
-  final Uint8List _bytes = Uint8List.fromList(_transparentPngBytes);
+  final Uint8List _bytes = .fromList(_transparentPngBytes);
 
   @override
   int get statusCode => HttpStatus.ok;
@@ -188,25 +192,78 @@ final class _OfflineTileResponse()
   );
 
   @override
-  Object? noSuchMethod(Invocation invocation) =>
+  Never noSuchMethod(Invocation invocation) =>
       throw UnimplementedError('HttpClientResponse.${invocation.memberName}');
 }
 
 final class _EmptyHttpHeaders() implements HttpHeaders {
   @override
-  void add(String name, Object value, {bool preserveHeaderCase = false}) {}
+  DateTime? date;
 
   @override
-  void set(String name, Object value, {bool preserveHeaderCase = false}) {}
+  DateTime? expires;
+
+  @override
+  DateTime? ifModifiedSince;
+
+  @override
+  String? host;
+
+  @override
+  int? port;
+
+  @override
+  ContentType? contentType;
+
+  @override
+  int contentLength = -1;
+
+  @override
+  bool persistentConnection = false;
+
+  @override
+  bool chunkedTransferEncoding = false;
+
+  @override
+  void add(String name, Object value, {bool preserveHeaderCase = false}) {
+    return;
+  }
+
+  @override
+  void set(String name, Object value, {bool preserveHeaderCase = false}) {
+    return;
+  }
+
+  @override
+  void remove(String name, Object value) {
+    return;
+  }
+
+  @override
+  void removeAll(String name) {
+    return;
+  }
+
+  @override
+  void forEach(void Function(String name, List<String> values) action) {
+    return;
+  }
+
+  @override
+  void noFolding(String name) {
+    return;
+  }
+
+  @override
+  void clear() {
+    return;
+  }
 
   @override
   String? value(String name) => null;
 
   @override
   List<String>? operator [](String name) => null;
-
-  @override
-  Object? noSuchMethod(Invocation invocation) => null;
 }
 
 final class _BenchmarkProfileRepo() implements ProfileRepository {
@@ -283,16 +340,17 @@ final class _BenchmarkProfileRepo() implements ProfileRepository {
     UserProfile profile, {
     AuthProviderType? authProvider,
     bool? isForeignLabMode,
-  }) async {}
+  }) => Future<void>.value();
 
   @override
   Future<UserProfile?> getCachedProfileSnapshot() async => _benchmarkProfile();
 
   @override
-  Future<void> updateLocalConsentActive({required bool isActive}) async {}
+  Future<void> updateLocalConsentActive({required bool isActive}) =>
+      Future<void>.value();
 
   @override
-  Future<void> clearAllLocalUserData() async {}
+  Future<void> clearAllLocalUserData() => Future<void>.value();
 }
 
 final class _BenchmarkMapRepo(final SqliteDatabase _db)
@@ -424,10 +482,8 @@ final class _BenchmarkMapRepo(final SqliteDatabase _db)
   ) async => Err(AppError.fromCode('INTERNAL_SERVER_ERROR'));
 
   @override
-  Future<void> setGpsTrackingEnabled(
-    bool enabled, {
-    int? intervalSeconds,
-  }) async {}
+  Future<void> setGpsTrackingEnabled(bool enabled, {int? intervalSeconds}) =>
+      Future<void>.value();
 
   @override
   Stream<({double lat, double lon, double accuracy})>
@@ -572,7 +628,7 @@ Future<List<double>> _pumpFrames(WidgetTester tester, int count) async {
 Future<void> _exerciseMascotStage(WidgetTester tester) async {
   final homeCubit = HomeCubit(
     _BenchmarkProfileRepo(),
-    _BenchmarkMapRepo(SqliteDatabase.instance),
+    _BenchmarkMapRepo(.instance),
   );
   await tester.pumpWidget(
     MaterialApp(
@@ -599,7 +655,7 @@ Future<void> _exerciseMascotStage(WidgetTester tester) async {
 
 Future<void> _exerciseMapStage(WidgetTester tester) async {
   final mapBloc = MapActivityBloc(
-    _BenchmarkMapRepo(SqliteDatabase.instance),
+    _BenchmarkMapRepo(.instance),
     _BenchmarkProfileRepo(),
   );
   await tester.pumpWidget(
@@ -653,7 +709,7 @@ void main() {
     } else {
       await SqliteDatabase.instance.initialize();
     }
-    await _seedBenchmarkSqlite(SqliteDatabase.instance);
+    await _seedBenchmarkSqlite(.instance);
   });
 
   tearDownAll(() async {
@@ -673,13 +729,15 @@ void main() {
       recordedTimings.addAll(timings);
     }
 
-    SchedulerBinding.instance.addTimingsCallback(onTimings);
-    addTearDown(
-      () => SchedulerBinding.instance.removeTimingsCallback(onTimings),
-    );
+    WidgetsBinding.instance.addTimingsCallback(onTimings);
+    addTearDown(() => WidgetsBinding.instance.removeTimingsCallback(onTimings));
 
     await _exerciseMascotStage(tester);
     await _exerciseMapStage(tester);
+
+    for (var attempt = 0; attempt < 10 && recordedTimings.isEmpty; attempt++) {
+      await Future<void>.delayed(const Duration(milliseconds: 200));
+    }
 
     final ptCount = await SqliteDatabase.instance.database.rawQuery(
       'SELECT COUNT(*) AS cnt FROM local_gps_track_points',
@@ -690,32 +748,36 @@ void main() {
     expect((ptCount.first['cnt'] as num?)?.toInt(), equals(10000));
     expect((wpCount.first['cnt'] as num?)?.toInt(), equals(5000));
 
-    if (recordedTimings.isNotEmpty) {
-      final buildMs =
-          recordedTimings
-              .map((t) => t.buildDuration.inMicroseconds / 1000.0)
-              .toList()
-            ..sort();
-      final rasterMs =
-          recordedTimings
-              .map((t) => t.rasterDuration.inMicroseconds / 1000.0)
-              .toList()
-            ..sort();
-      final totalMs =
-          recordedTimings
-              .map((t) => t.totalSpan.inMicroseconds / 1000.0)
-              .toList()
-            ..sort();
-      debugPrint(
-        'Impeller timings n=${recordedTimings.length} '
-        'build(p50=${_percentileMs(buildMs, 0.50).toStringAsFixed(2)}, '
-        'p95=${_percentileMs(buildMs, 0.95).toStringAsFixed(2)}, '
-        'p99=${_percentileMs(buildMs, 0.99).toStringAsFixed(2)}) '
-        'raster(p99=${_percentileMs(rasterMs, 0.99).toStringAsFixed(2)}) '
-        'total(p99=${_percentileMs(totalMs, 0.99).toStringAsFixed(2)})',
-      );
-      expect(_percentileMs(buildMs, 0.99), lessThanOrEqualTo(16.6));
-      expect(_percentileMs(rasterMs, 0.99), lessThanOrEqualTo(16.6));
-    }
+    expect(
+      recordedTimings,
+      isNotEmpty,
+      reason:
+          'Expected FrameTiming entries from WidgetsBinding.addTimingsCallback; '
+          'zero timings were recorded (cannot verify 60fps p99 <= 16.6 ms budget).',
+    );
+
+    final buildMs =
+        recordedTimings
+            .map((t) => t.buildDuration.inMicroseconds / 1000.0)
+            .toList()
+          ..sort();
+    final rasterMs =
+        recordedTimings
+            .map((t) => t.rasterDuration.inMicroseconds / 1000.0)
+            .toList()
+          ..sort();
+    final totalMs =
+        recordedTimings.map((t) => t.totalSpan.inMicroseconds / 1000.0).toList()
+          ..sort();
+    debugPrint(
+      'Impeller timings n=${recordedTimings.length} '
+      'build(p50=${_percentileMs(buildMs, 0.50).toStringAsFixed(2)}, '
+      'p95=${_percentileMs(buildMs, 0.95).toStringAsFixed(2)}, '
+      'p99=${_percentileMs(buildMs, 0.99).toStringAsFixed(2)}) '
+      'raster(p99=${_percentileMs(rasterMs, 0.99).toStringAsFixed(2)}) '
+      'total(p99=${_percentileMs(totalMs, 0.99).toStringAsFixed(2)})',
+    );
+    expect(_percentileMs(buildMs, 0.99), lessThanOrEqualTo(16.6));
+    expect(_percentileMs(rasterMs, 0.99), lessThanOrEqualTo(16.6));
   });
 }

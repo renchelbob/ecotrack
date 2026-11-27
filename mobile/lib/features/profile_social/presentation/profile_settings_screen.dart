@@ -96,6 +96,87 @@ final class _ProfileSettingsScreenState() extends State<ProfileSettingsScreen> {
         ),
       );
 
+  Future<void> _openRulesSheet() async {
+    final handler = widget.onReadPolicy;
+    if (handler != null) {
+      await handler(context);
+      return;
+    }
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: EcoColors.surfacePrimary,
+      shape: const RoundedRectangleBorder(
+        borderRadius: .vertical(top: .circular(28)),
+      ),
+      builder: (sheetCtx) => SafeArea(
+        child: SingleChildScrollView(
+          padding: const .fromLTRB(20, 16, 20, 24),
+          child: Column(
+            mainAxisSize: .min,
+            crossAxisAlignment: .stretch,
+            children: [
+              const Text(
+                'Правила сервиса и политика ПДн (152-ФЗ)',
+                style: EcoTypography.titleMedium,
+              ),
+              const SizedBox(height: 6),
+              const Text(
+                'Версия политики: 1.0.0-2026',
+                style: EcoTypography.labelSmall,
+              ),
+              const SizedBox(height: 12),
+              const Text(
+                'Первичная обработка и хранение ПДн осуществляются на территории РФ в соответствии со 152-ФЗ. Шаги считываются исключительно с системных датчиков без ручного ввода.',
+                style: EcoTypography.bodyMedium,
+              ),
+              const SizedBox(height: 16),
+              ElevatedButton(
+                onPressed: () => Navigator.of(sheetCtx).pop(),
+                child: const Text('Закрыть'),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _openSupportSheet() => showModalBottomSheet<void>(
+    context: context,
+    backgroundColor: EcoColors.surfacePrimary,
+    shape: const RoundedRectangleBorder(
+      borderRadius: .vertical(top: .circular(28)),
+    ),
+    builder: (sheetCtx) => SafeArea(
+      child: Padding(
+        padding: const .fromLTRB(20, 16, 20, 24),
+        child: Column(
+          mainAxisSize: .min,
+          crossAxisAlignment: .stretch,
+          children: [
+            const Text('Поддержка EcoTrack', style: EcoTypography.titleMedium),
+            const SizedBox(height: 10),
+            const Text(
+              'Если возникли вопросы по учёту шагов, GPS-маршрутам или удалению данных по 152-ФЗ, напишите команде поддержки.',
+              style: EcoTypography.bodyMedium,
+            ),
+            const SizedBox(height: 12),
+            const SelectableText(
+              'support@ecotrack.ru',
+              style: EcoTypography.bodyLarge,
+            ),
+            const SizedBox(height: 16),
+            ElevatedButton(
+              onPressed: () => Navigator.of(sheetCtx).pop(),
+              child: const Text('Закрыть'),
+            ),
+          ],
+        ),
+      ),
+    ),
+  );
+
   Future<void> _confirmRevokeConsent() async {
     final confirmed = await showDialog<bool>(
       context: context,
@@ -181,6 +262,8 @@ final class _ProfileSettingsScreenState() extends State<ProfileSettingsScreen> {
                 onOpenConsents: () =>
                     unawaited(_openConsentHistorySheet(state.consents)),
                 onRevokeConsent: () => unawaited(_confirmRevokeConsent()),
+                onOpenRules: () => unawaited(_openRulesSheet()),
+                onOpenSupport: () => unawaited(_openSupportSheet()),
                 onDeleteAccount: () => unawaited(_openDeleteAccountFlow()),
               ),
             },
@@ -199,6 +282,8 @@ final class const _ProfileLoadedBody({
   required final VoidCallback onCopyFriendCode,
   required final VoidCallback onOpenConsents,
   required final VoidCallback onRevokeConsent,
+  required final VoidCallback onOpenRules,
+  required final VoidCallback onOpenSupport,
   required final VoidCallback onDeleteAccount,
 }) extends StatelessWidget {
   @override
@@ -243,6 +328,8 @@ final class const _ProfileLoadedBody({
           _Legal152FzSectionCard(
             onOpenConsents: onOpenConsents,
             onRevokeConsent: onRevokeConsent,
+            onOpenRules: onOpenRules,
+            onOpenSupport: onOpenSupport,
             onDeleteAccount: onDeleteAccount,
             onLogout: () => unawaited(cubit.logout()),
           ),
@@ -405,10 +492,7 @@ final class const _ProfileHeaderCard({
                                 color: EcoColors.surfacePrimary,
                                 borderRadius: .all(.circular(999)),
                                 border: .fromBorderSide(
-                                  BorderSide(
-                                    color: EcoColors.borderMuted,
-                                    width: 1,
-                                  ),
+                                  BorderSide(color: EcoColors.borderMuted),
                                 ),
                               ),
                               child: Padding(
@@ -739,42 +823,72 @@ final class const _GpsAndPrivacyCard({
 final class const _Legal152FzSectionCard({
   required final VoidCallback onOpenConsents,
   required final VoidCallback onRevokeConsent,
+  required final VoidCallback onOpenRules,
+  required final VoidCallback onOpenSupport,
   required final VoidCallback onDeleteAccount,
   required final VoidCallback onLogout,
 }) extends StatelessWidget {
   @override
-  Widget build(BuildContext context) => DecoratedBox(
-    decoration: const BoxDecoration(
-      color: EcoColors.surfaceCard,
-      borderRadius: .all(.circular(20)),
-      border: .fromBorderSide(
-        BorderSide(color: EcoColors.borderMuted, width: 1.5),
+  Widget build(BuildContext context) => Column(
+    children: [
+      DecoratedBox(
+        decoration: const BoxDecoration(
+          color: EcoColors.surfaceCard,
+          borderRadius: .all(.circular(20)),
+          border: .fromBorderSide(
+            BorderSide(color: EcoColors.borderMuted, width: 1.5),
+          ),
+        ),
+        child: Column(
+          children: [
+            _SettingsMenuRow(
+              icon: LucideIcons.fileCheck,
+              label: 'Журнал согласий 152-ФЗ',
+              onTap: onOpenConsents,
+            ),
+            _SettingsMenuRow(
+              icon: LucideIcons.rotateCcw,
+              label: 'Отозвать согласие',
+              onTap: onRevokeConsent,
+            ),
+            _SettingsMenuRow(
+              icon: LucideIcons.shieldAlert,
+              label: 'Правила',
+              onTap: onOpenRules,
+            ),
+            _SettingsMenuRow(
+              icon: LucideIcons.circleHelp,
+              label: 'Поддержка',
+              onTap: onOpenSupport,
+            ),
+          ],
+        ),
       ),
-    ),
-    child: Column(
-      children: [
-        _SettingsMenuRow(
-          icon: LucideIcons.shieldCheck,
-          label: 'Политика и журнал согласий 152-ФЗ',
-          onTap: onOpenConsents,
+      const SizedBox(height: 12),
+      DecoratedBox(
+        decoration: const BoxDecoration(
+          color: EcoColors.surfaceCard,
+          borderRadius: .all(.circular(20)),
+          border: .fromBorderSide(
+            BorderSide(color: EcoColors.borderMuted, width: 1.5),
+          ),
         ),
-        _SettingsMenuRow(
-          icon: LucideIcons.rotateCcw,
-          label: 'Отозвать согласие на обработку ПДн (152-ФЗ)',
-          onTap: onRevokeConsent,
+        child: Column(
+          children: [
+            _SettingsMenuRow(
+              icon: LucideIcons.logOut,
+              label: 'Выйти из аккаунта',
+              onTap: onLogout,
+            ),
+            _SettingsMenuRow(
+              icon: LucideIcons.trash2,
+              label: 'Удалить аккаунт и данные (ст. 21 152-ФЗ)',
+              onTap: onDeleteAccount,
+            ),
+          ],
         ),
-        _SettingsMenuRow(
-          icon: LucideIcons.logOut,
-          label: 'Выйти из аккаунта',
-          onTap: onLogout,
-        ),
-        _SettingsMenuRow(
-          icon: LucideIcons.trash2,
-          label: 'Удалить аккаунт и данные (ст. 21 152-ФЗ)',
-          onTap: onDeleteAccount,
-        ),
-      ],
-    ),
+      ),
+    ],
   );
 }
 
@@ -828,30 +942,33 @@ final class const _ConsentJournalSheet({
           borderRadius: .vertical(top: .circular(28)),
         ),
         builder: (sheetCtx) => SafeArea(
-          child: ListView(
-            shrinkWrap: true,
+          child: SingleChildScrollView(
             padding: const .fromLTRB(20, 16, 20, 24),
-            children: [
-              const Text(
-                'Политика конфиденциальности (152-ФЗ)',
-                style: EcoTypography.titleMedium,
-              ),
-              const SizedBox(height: 6),
-              const Text(
-                'Версия политики: 1.0.0-2026',
-                style: EcoTypography.labelSmall,
-              ),
-              const SizedBox(height: 12),
-              const Text(
-                'Первичная обработка и хранение ПДн осуществляются на территории РФ в соответствии со 152-ФЗ.',
-                style: EcoTypography.bodyMedium,
-              ),
-              const SizedBox(height: 16),
-              ElevatedButton(
-                onPressed: () => Navigator.of(sheetCtx).pop(),
-                child: const Text('Закрыть'),
-              ),
-            ],
+            child: Column(
+              mainAxisSize: .min,
+              crossAxisAlignment: .stretch,
+              children: [
+                const Text(
+                  'Политика конфиденциальности (152-ФЗ)',
+                  style: EcoTypography.titleMedium,
+                ),
+                const SizedBox(height: 6),
+                const Text(
+                  'Версия политики: 1.0.0-2026',
+                  style: EcoTypography.labelSmall,
+                ),
+                const SizedBox(height: 12),
+                const Text(
+                  'Первичная обработка и хранение ПДн осуществляются на территории РФ в соответствии со 152-ФЗ.',
+                  style: EcoTypography.bodyMedium,
+                ),
+                const SizedBox(height: 16),
+                ElevatedButton(
+                  onPressed: () => Navigator.of(sheetCtx).pop(),
+                  child: const Text('Закрыть'),
+                ),
+              ],
+            ),
           ),
         ),
       );
@@ -951,6 +1068,8 @@ final class _DeleteAccountSheetState() extends State<_DeleteAccountSheet> {
     text: _defaultReason,
   );
   final TextEditingController _phraseController = TextEditingController();
+  String _reasonText = _defaultReason;
+  String _phraseText = '';
   bool _confirmedStepOne = false;
 
   @override
@@ -968,7 +1087,7 @@ final class _DeleteAccountSheetState() extends State<_DeleteAccountSheet> {
       final loaded = state is ProfileSettingsLoaded ? state : null;
       final receipt = loaded?.deletionReceipt;
       final isSaving = loaded?.isSaving ?? false;
-      final trimmedReason = _reasonController.text.trim();
+      final trimmedReason = _reasonText.trim();
       final isReasonValid =
           trimmedReason.length >= 3 && trimmedReason.length <= 128;
 
@@ -1043,7 +1162,7 @@ final class _DeleteAccountSheetState() extends State<_DeleteAccountSheet> {
                 TextField(
                   controller: _reasonController,
                   maxLength: 128,
-                  onChanged: (_) => setState(() {}),
+                  onChanged: (value) => setState(() => _reasonText = value),
                   decoration: InputDecoration(
                     labelText: 'Причина удаления',
                     helperText: 'Минимум 3 символа',
@@ -1055,7 +1174,7 @@ final class _DeleteAccountSheetState() extends State<_DeleteAccountSheet> {
                 const SizedBox(height: 10),
                 TextField(
                   controller: _phraseController,
-                  onChanged: (_) => setState(() {}),
+                  onChanged: (value) => setState(() => _phraseText = value),
                   decoration: const InputDecoration(
                     labelText: 'Введите $_requiredPhrase',
                   ),
@@ -1064,7 +1183,7 @@ final class _DeleteAccountSheetState() extends State<_DeleteAccountSheet> {
                 ElevatedButton(
                   onPressed:
                       isReasonValid &&
-                          _phraseController.text.trim() == _requiredPhrase &&
+                          _phraseText.trim() == _requiredPhrase &&
                           !isSaving
                       ? () => unawaited(
                           context.read<ProfileSettingsCubit>().deleteAccount(

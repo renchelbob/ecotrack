@@ -198,6 +198,11 @@ final class MapActivityBloc(
   ({double minLat, double minLon, double maxLat, double maxLon, int zoom})?
   _lastBbox;
 
+  TileCacheStorage? get tileCacheStorage => switch (_mapRepo) {
+    final TileCacheStorageProvider provider => provider.tileCacheStorage,
+    _ => null,
+  };
+
   Future<void> _onStarted(
     MapStarted event,
     Emitter<MapActivityState> emit,
@@ -587,6 +592,7 @@ final class MapActivityBloc(
             final detailRes = await _mapRepo.getWastePointDetail(event.pointId);
             final latestDetail =
                 detailRes.valueOrNull ?? current.wasteView.selectedPoint;
+            final isConfirmation = event.reportType == .confirmWorking;
             final updatedPts = current.wasteView.points
                 .map(
                   (p) => p.id == event.pointId
@@ -599,8 +605,13 @@ final class MapActivityBloc(
                           lon: p.lon,
                           status: value.updatedStatus,
                           trustScore: value.updatedTrustScore,
-                          confirmationsCount: p.confirmationsCount + 1,
-                          issuesCount: p.issuesCount,
+                          confirmationsCount:
+                              detailRes.isOk && latestDetail != null
+                              ? latestDetail.confirmationsCount
+                              : p.confirmationsCount + (isConfirmation ? 1 : 0),
+                          issuesCount: detailRes.isOk && latestDetail != null
+                              ? latestDetail.issuesCount
+                              : p.issuesCount + (isConfirmation ? 0 : 1),
                         )
                       : p,
                 )

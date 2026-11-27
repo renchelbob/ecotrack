@@ -109,7 +109,7 @@ void main() {
         isGpsTrackingEnabled: true,
         isStatsVisibleToFriends: true,
         is152fzConsentActive: true,
-        mascot: MascotVisualState(mood: mood, dailyGoalProgressRatio: 0.75),
+        mascot: .new(mood: mood, dailyGoalProgressRatio: 0.75),
         createdAt: '2026-11-24T12:00:00Z',
       );
 
@@ -176,7 +176,7 @@ void main() {
         final order = ShopOrderDetail(
           id: 'ord-1',
           idempotencyKey: '0195a1b2-c3d4-7000-8000-000000000001',
-          status: OrderStatus.completed,
+          status: .completed,
           totalPoints: price,
           remainingPointsBalance: 100,
           itemCount: 1,
@@ -220,7 +220,7 @@ void main() {
         final ledger = PointLedgerItem(
           id: 'led-1',
           idempotencyKey: '0195a1b2-c3d4-7000-8000-000000000002',
-          operationType: LedgerOperationType.dailyStepsReward,
+          operationType: .dailyStepsReward,
           pointsDelta: delta,
           co2DeltaGrams: delta * 10,
           description: 'Награда',

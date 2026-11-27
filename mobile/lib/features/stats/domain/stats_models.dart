@@ -83,6 +83,25 @@ final class const EcoEquivalentsMetrics({
   required final int plasticBottlesRecycledEquivalent,
   required final int ledBulbHoursEquivalent,
 }) {
+  /// Computes exact eco-equivalents from [totalCo2SavedGrams] using scaled
+  /// integer [BigInt] arithmetic per `specs/02` Section 5.1 (zero float drift).
+  factory fromCo2Grams(int totalCo2SavedGrams) {
+    final g = BigInt.from(totalCo2SavedGrams <= 0 ? 0 : totalCo2SavedGrams);
+    return EcoEquivalentsMetrics(
+      totalCo2SavedGrams: totalCo2SavedGrams <= 0 ? 0 : totalCo2SavedGrams,
+      treesPlantedEquivalent:
+          _roundHalfUpDiv(g, BigInt.from(200)).toInt() / 100.0,
+      carKmAvoided:
+          _roundHalfUpDiv(g * BigInt.from(10), BigInt.from(192)).toInt() / 10.0,
+      smartphoneChargesEquivalent: ((g * BigInt.from(100)) ~/ BigInt.from(822))
+          .toInt(),
+      plasticBottlesRecycledEquivalent:
+          ((g * BigInt.from(100)) ~/ BigInt.from(8280)).toInt(),
+      ledBulbHoursEquivalent: ((g * BigInt.from(100)) ~/ BigInt.from(340))
+          .toInt(),
+    );
+  }
+
   static const EcoEquivalentsMetrics empty = EcoEquivalentsMetrics(
     totalCo2SavedGrams: 0,
     treesPlantedEquivalent: 0,
@@ -92,15 +111,41 @@ final class const EcoEquivalentsMetrics({
     ledBulbHoursEquivalent: 0,
   );
 
-  double get forestAreaSqm => ((totalCo2SavedGrams / 500.0) * 10).round() / 10;
+  BigInt get _gramsBigInt =>
+      BigInt.from(totalCo2SavedGrams <= 0 ? 0 : totalCo2SavedGrams);
+
+  double get forestAreaSqm =>
+      _roundHalfUpDiv(_gramsBigInt, BigInt.from(50)).toInt() / 10.0;
 
   double get gasolineLitersSaved =>
-      ((totalCo2SavedGrams / 2330.0) * 100).round() / 100;
+      _roundHalfUpDiv(
+        _gramsBigInt * BigInt.from(10),
+        BigInt.from(233),
+      ).toInt() /
+      100.0;
 
-  int get fuelRubSaved => ((totalCo2SavedGrams / 2330.0) * 62.50).round();
+  int get fuelRubSaved => _roundHalfUpDiv(
+    _gramsBigInt * BigInt.from(6250),
+    BigInt.from(233000),
+  ).toInt();
 
   double get cleanAirCubicMeters =>
-      ((totalCo2SavedGrams / 1.96) * 10).round() / 10;
+      _roundHalfUpDiv(
+        _gramsBigInt * BigInt.from(1000),
+        BigInt.from(196),
+      ).toInt() /
+      10.0;
+
+  static BigInt _roundHalfUpDiv(BigInt numerator, BigInt denominator) {
+    if (numerator <= BigInt.zero) {
+      return BigInt.zero;
+    }
+    final quotient = numerator ~/ denominator;
+    final remainder = numerator % denominator;
+    return (remainder * BigInt.two) >= denominator
+        ? quotient + BigInt.one
+        : quotient;
+  }
 
   static Result<EcoEquivalentsMetrics, AppError> fromJson(
     Map<String, Object?> json,

@@ -11,6 +11,7 @@ import 'package:ecotrack_mobile/core/sensors/gps_foreground_service.dart';
 import 'package:ecotrack_mobile/core/sensors/step_sensor_bridge.dart';
 import 'package:ecotrack_mobile/core/utils/co2_math.dart';
 import 'package:ecotrack_mobile/core/utils/uuid_v7.dart';
+import 'package:ecotrack_mobile/features/map_activity/data/sqlite_tile_cache_store.dart';
 import 'package:ecotrack_mobile/features/map_activity/domain/map_models.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:sqflite/sqflite.dart';
@@ -20,16 +21,25 @@ final class MapRepositoryImpl(
   final SqliteDatabase _db,
   final OutboxDispatcher _outbox,
   final StepSensorBridge _steps,
-  final GpsForegroundService _gps,
-) implements MapActivityRepository {
+  final GpsForegroundService _gps, [
+  final SqliteTileCacheStore? _overrideTileCacheStore,
+]) implements MapActivityRepository, TileCacheStorageProvider {
   static const int _maxCachedWastePoints = 10000;
   static const int _wastePointsTtlMs = 24 * 60 * 60 * 1000;
-  static const Distance _distance = Distance();
+  static const Distance _distance = Distance(roundResult: false);
 
   final StreamController<DailyActivitySummary> _summaryController =
       StreamController<DailyActivitySummary>.broadcast();
+  late final SqliteTileCacheStore _tileCacheStore =
+      _overrideTileCacheStore ?? SqliteTileCacheStore();
 
-  Future<void> dispose() => _summaryController.close();
+  @override
+  TileCacheStorage get tileCacheStorage => _tileCacheStore;
+
+  Future<void> dispose() async {
+    await _summaryController.close();
+    await _tileCacheStore.close();
+  }
 
   @override
   Stream<DailyActivitySummary> watchDailySummary(String activityDate) =>
@@ -83,6 +93,12 @@ final class MapRepositoryImpl(
         strideLengthCm: profileMeta.strideLengthCm,
       );
       effectiveSteps = math.max(rawSensorSteps, sensorSteps);
+    }
+    if (effectiveSteps < 0) {
+      return Err(AppError.fromCode('VALIDATION_ERROR'));
+    }
+    if (effectiveSteps > Co2Math.maxDailySteps) {
+      return Err(AppError.fromCode('ANTIFRAUD_DAILY_STEP_CAP_EXCEEDED'));
     }
 
     final tzOffsetMin = DateTime.now().timeZoneOffset.inMinutes;
@@ -184,6 +200,13 @@ final class MapRepositoryImpl(
         return Ok(value);
       case Err(:final error):
         if (_isOfflineError(error)) {
+          final validationErr = await _validateAllocationsLocally(
+            activityDate,
+            allocations,
+          );
+          if (validationErr != null) {
+            return Err(validationErr);
+          }
           final optimistic = await _saveOptimisticAllocations(
             activityDate: activityDate,
             inputs: allocations,
@@ -259,6 +282,8 @@ final class MapRepositoryImpl(
     required double maxLon,
     required int zoom,
     List<WasteFractionCode> fractions = const <WasteFractionCode>[],
+    double? minTrustScore,
+    bool? includeUnverified,
   }) async {
     final query = <String, Object?>{
       'min_lat': minLat,
@@ -266,8 +291,8 @@ final class MapRepositoryImpl(
       'max_lat': maxLat,
       'max_lon': maxLon,
       'zoom': zoom.clamp(3, 20),
-      'min_trust_score': 0.0,
-      'include_unverified': true,
+      if (minTrustScore != null) 'min_trust_score': minTrustScore,
+      if (includeUnverified != null) 'include_unverified': includeUnverified,
       if (fractions.isNotEmpty)
         'fractions': fractions.map((f) => f.wireName).join(','),
     };
@@ -290,6 +315,8 @@ final class MapRepositoryImpl(
             maxLat: maxLat,
             maxLon: maxLon,
             fractions: fractions,
+            minTrustScore: minTrustScore,
+            includeUnverified: includeUnverified,
           );
           return Ok(
             WastePointsBboxResponse(
@@ -477,7 +504,8 @@ final class MapRepositoryImpl(
       activityDate,
       pointsBalance: pointsBalance,
     );
-    final validated = math.min(rawSensorSteps, Co2Math.maxDailySteps);
+    final cappedSteps = math.min(rawSensorSteps, Co2Math.maxDailySteps);
+    final validated = math.max(existing?.validatedSteps ?? 0, cappedSteps);
     final totalDistM = Co2Math.computeStepDistanceM(validated, strideLengthCm);
     final allocDistM = existing?.allocatedGpsDistanceM ?? 0.0;
     final allocCo2 = existing?.allocatedCo2SavedGrams ?? 0;
@@ -499,7 +527,11 @@ final class MapRepositoryImpl(
       pointsDeltaApplied: 0,
       pointsBalance: pointsBalance,
       isAutoCalculated: allocDistM == 0.0,
-      antifraudFlagged: false,
+      antifraudFlagged: rawSensorSteps > Co2Math.maxDailySteps,
+      antifraudReason: rawSensorSteps > Co2Math.maxDailySteps
+          ? 'DAILY_CAP_100K_EXCEEDED'
+          : existing?.antifraudReason,
+      lastSyncedAt: existing?.lastSyncedAt,
     );
     await _upsertLocalSummary(
       summary,
@@ -519,7 +551,7 @@ final class MapRepositoryImpl(
     if (!_db.isInitialized) return;
     final existing = await _db.database.query(
       'local_daily_step_summaries',
-      columns: ['pedometer_boot_baseline'],
+      columns: ['pedometer_boot_baseline', 'last_synced_at_ms'],
       where: 'activity_date = ?',
       whereArgs: [summary.activityDate],
       limit: 1,
@@ -527,6 +559,9 @@ final class MapRepositoryImpl(
     final baseline = existing.isEmpty
         ? null
         : existing.first['pedometer_boot_baseline'];
+    final existingSyncedAtMs = existing.isEmpty
+        ? null
+        : existing.first['last_synced_at_ms'];
     final nowMs = DateTime.now().millisecondsSinceEpoch;
     await _db.database.insert('local_daily_step_summaries', {
       'activity_date': summary.activityDate,
@@ -546,7 +581,7 @@ final class MapRepositoryImpl(
       'is_auto_calculated': summary.isAutoCalculated ? 1 : 0,
       'sync_status': syncStatus,
       'last_sensor_read_at_ms': nowMs,
-      'last_synced_at_ms': syncStatus == 'synced' ? nowMs : null,
+      'last_synced_at_ms': syncStatus == 'synced' ? nowMs : existingSyncedAtMs,
     }, conflictAlgorithm: ConflictAlgorithm.replace);
   }
 
@@ -676,6 +711,51 @@ final class MapRepositoryImpl(
     );
   }
 
+  Future<AppError?> _validateAllocationsLocally(
+    String activityDate,
+    List<RouteSegmentAllocationInput> inputs,
+  ) async {
+    final sorted = [...inputs]
+      ..sort((a, b) => a.startSeqNo.compareTo(b.startSeqNo));
+    for (var i = 0; i < sorted.length; i++) {
+      final curr = sorted[i];
+      if (curr.startSeqNo < 0 || curr.endSeqNo <= curr.startSeqNo) {
+        return AppError.fromCode('SEGMENT_SEQ_OUT_OF_BOUNDS');
+      }
+      if (i + 1 < sorted.length && curr.endSeqNo > sorted[i + 1].startSeqNo) {
+        return AppError.fromCode('SEGMENT_OVERLAP_CONFLICT');
+      }
+    }
+
+    final detail = await _loadLocalDailyDetail(activityDate);
+    final trackPoints = detail.trackPoints;
+    if (trackPoints.isEmpty) {
+      return null;
+    }
+
+    final seqSet = trackPoints.map((p) => p.seqNo).toSet();
+    for (final input in sorted) {
+      if (!seqSet.contains(input.startSeqNo) ||
+          !seqSet.contains(input.endSeqNo)) {
+        return AppError.fromCode('SEGMENT_SEQ_OUT_OF_BOUNDS');
+      }
+      final intervalPts = trackPoints.where(
+        (p) => p.seqNo > input.startSeqNo && p.seqNo <= input.endSeqNo,
+      );
+      if (intervalPts.any((p) => p.motionClass == .vehicleSuspected)) {
+        return AppError.fromCode('SEGMENT_CONTAINS_VEHICLE_MOTION');
+      }
+      final rawDistM = intervalPts.fold<double>(
+        0.0,
+        (acc, p) => acc + p.deltaDistanceM,
+      );
+      if (Co2Math.roundHalfUpDecimals(rawDistM, 2) <= 0.0) {
+        return AppError.fromCode('VALIDATION_ERROR');
+      }
+    }
+    return null;
+  }
+
   Future<DailyActivityDetail> _saveOptimisticAllocations({
     required String activityDate,
     required List<RouteSegmentAllocationInput> inputs,
@@ -700,10 +780,14 @@ final class MapRepositoryImpl(
         final intervalPts = trackPoints.where(
           (p) => p.seqNo > input.startSeqNo && p.seqNo <= input.endSeqNo,
         );
-        final distM = math.max(
-          1.0,
-          intervalPts.fold<double>(0.0, (acc, p) => acc + p.deltaDistanceM),
+        final rawDistM = intervalPts.fold<double>(
+          0.0,
+          (acc, p) => acc + p.deltaDistanceM,
         );
+        final distM = Co2Math.roundHalfUpDecimals(rawDistM, 2);
+        if (distM <= 0.0) {
+          continue;
+        }
         final steps = intervalPts.fold<int>(0, (acc, p) => acc + p.deltaSteps);
         final rate =
             presets[input.replacedTransportMode.wireName] ??
@@ -860,6 +944,8 @@ final class MapRepositoryImpl(
     required double maxLat,
     required double maxLon,
     required List<WasteFractionCode> fractions,
+    double? minTrustScore,
+    bool? includeUnverified,
   }) async {
     if (!_db.isInitialized) return const [];
     final cutoffMs = DateTime.now().millisecondsSinceEpoch - _wastePointsTtlMs;
@@ -869,11 +955,19 @@ final class MapRepositoryImpl(
           'lat BETWEEN ? AND ? AND lon BETWEEN ? AND ? AND cached_at_ms >= ?',
       whereArgs: [minLat, maxLat, minLon, maxLon, cutoffMs],
     );
+    final effectiveMinTrust = minTrustScore ?? 25.0;
+    final allowUnverified = includeUnverified ?? false;
     final filterSet = fractions.toSet();
     final out = <WastePointMapItem>[];
     for (final row in rows) {
       final parsed = WastePointMapItem.fromSqliteRow(row).valueOrNull;
       if (parsed == null) continue;
+      final statusAllowed =
+          parsed.status == .active ||
+          (allowUnverified && parsed.status == .unverified);
+      if (!statusAllowed || parsed.trustScore < effectiveMinTrust) {
+        continue;
+      }
       if (filterSet.isEmpty ||
           parsed.acceptedFractions.any(filterSet.contains)) {
         out.add(parsed);

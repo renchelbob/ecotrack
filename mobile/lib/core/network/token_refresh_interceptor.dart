@@ -66,7 +66,7 @@ final class TokenRefreshInterceptor({
           'device_fingerprint': fingerprint,
         },
       );
-      final tokens = _parseTokenPair(refreshResponse.data);
+      final tokens = _parseSessionTokens(refreshResponse.data);
       if (tokens == null) {
         handler.next(await _forceLogoutAndTag(err));
         return;
@@ -75,6 +75,9 @@ final class TokenRefreshInterceptor({
       await tokenStore.saveTokens(
         accessToken: tokens.accessToken,
         refreshToken: tokens.refreshToken,
+        expiresInSeconds: tokens.expiresInSeconds,
+        authProvider: tokens.authProvider,
+        isForeignProviderLabMode: tokens.isForeignProviderLabMode,
       );
       await _retryOriginalRequest(
         err: err,
@@ -145,9 +148,14 @@ final class TokenRefreshInterceptor({
     return header.startsWith(prefix) ? header.substring(prefix.length) : null;
   }
 
-  static ({String accessToken, String refreshToken})? _parseTokenPair(
-    Object? data,
-  ) {
+  static ({
+    String accessToken,
+    String refreshToken,
+    int? expiresInSeconds,
+    String? authProvider,
+    bool? isForeignProviderLabMode,
+  })?
+  _parseSessionTokens(Object? data) {
     if (data is! Map<Object?, Object?>) {
       return null;
     }
@@ -157,7 +165,20 @@ final class TokenRefreshInterceptor({
         access.isNotEmpty &&
         refresh is String &&
         refresh.isNotEmpty) {
-      return (accessToken: access, refreshToken: refresh);
+      final expiresRaw = data['expires_in_seconds'];
+      final labRaw = data['is_foreign_provider_lab_mode'];
+      final userRaw = data['user'];
+      String? provider;
+      if (userRaw case {'auth_provider': final String rawProvider}) {
+        provider = rawProvider;
+      }
+      return (
+        accessToken: access,
+        refreshToken: refresh,
+        expiresInSeconds: expiresRaw is num ? expiresRaw.toInt() : null,
+        authProvider: provider,
+        isForeignProviderLabMode: labRaw is bool ? labRaw : null,
+      );
     }
     return null;
   }

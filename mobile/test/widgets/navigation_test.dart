@@ -9,13 +9,11 @@ import 'package:ecotrack_mobile/core/database/sqlite_database.dart';
 import 'package:ecotrack_mobile/core/di/app_dependencies.dart';
 import 'package:ecotrack_mobile/core/error/app_error.dart';
 import 'package:ecotrack_mobile/core/error/result.dart';
-import 'package:ecotrack_mobile/core/network/dio_client.dart';
 import 'package:ecotrack_mobile/core/network/token_store.dart';
 import 'package:ecotrack_mobile/core/push/push_provider.dart';
 import 'package:ecotrack_mobile/core/router/app_router.dart';
 import 'package:ecotrack_mobile/core/router/floating_bottom_nav_bar.dart';
 import 'package:ecotrack_mobile/core/theme/eco_theme.dart';
-import 'package:ecotrack_mobile/features/auth_fz152/data/oauth_pkce_client.dart';
 import 'package:ecotrack_mobile/features/auth_fz152/domain/auth_models.dart';
 import 'package:ecotrack_mobile/features/auth_fz152/presentation/auth_bloc.dart';
 import 'package:ecotrack_mobile/features/auth_fz152/presentation/onboarding_screen.dart';
@@ -46,10 +44,7 @@ UserProfile _sampleProfile({
   isGpsTrackingEnabled: false,
   isStatsVisibleToFriends: true,
   is152fzConsentActive: is152fzConsentActive,
-  mascot: const MascotVisualState(
-    mood: MascotMoodState.happy,
-    dailyGoalProgressRatio: 0.6,
-  ),
+  mascot: const .new(mood: .happy, dailyGoalProgressRatio: 0.6),
   createdAt: '2026-11-24T10:00:00Z',
 );
 
@@ -103,7 +98,9 @@ final class _FakeDioAdapter() implements HttpClientAdapter {
   }
 
   @override
-  void close({bool force = false}) {}
+  void close({bool force = false}) {
+    return;
+  }
 }
 
 final class _StubAuthRepo() implements AuthRepository {
@@ -147,8 +144,8 @@ final class _StubAuthRepo() implements AuthRepository {
     ConsentJournalEntry(
       id: 'c-1',
       policyVersion: '1.0.0-2026',
-      action: ConsentActionType.granted,
-      consentScope: ConsentScopeObject(
+      action: .granted,
+      consentScope: .new(
         personalData152fz: true,
         healthStepsSensor: true,
         backgroundGeolocation: false,
@@ -164,12 +161,12 @@ final class _StubAuthRepo() implements AuthRepository {
   Future<bool> hasCompletedOnboarding() async => true;
 
   @override
-  Future<void> markOnboardingStepSeen() async {}
+  Future<void> markOnboardingStepSeen() => Future<void>.value();
 }
 
 final class _StubPushProvider() implements PushProvider {
   @override
-  Future<void> initialize() async {}
+  Future<void> initialize() => Future<void>.value();
 
   @override
   Future<String?> getDevicePushToken() async => null;
@@ -187,13 +184,13 @@ final class _StubPushProvider() implements PushProvider {
   Future<void> registerCurrentToken({
     required String deviceId,
     String platform = 'fcm_android',
-  }) async {}
+  }) => Future<void>.value();
 
   @override
-  Future<void> unregisterCurrentToken() async {}
+  Future<void> unregisterCurrentToken() => Future<void>.value();
 
   @override
-  Future<void> dispose() async {}
+  Future<void> dispose() => Future<void>.value();
 }
 
 final class _StubProfileRepo() implements ProfileRepository {
@@ -253,16 +250,17 @@ final class _StubProfileRepo() implements ProfileRepository {
     UserProfile profile, {
     AuthProviderType? authProvider,
     bool? isForeignLabMode,
-  }) async {}
+  }) => Future<void>.value();
 
   @override
   Future<UserProfile?> getCachedProfileSnapshot() async => _sampleProfile();
 
   @override
-  Future<void> updateLocalConsentActive({required bool isActive}) async {}
+  Future<void> updateLocalConsentActive({required bool isActive}) =>
+      Future<void>.value();
 
   @override
-  Future<void> clearAllLocalUserData() async {}
+  Future<void> clearAllLocalUserData() => Future<void>.value();
 }
 
 final class _StubMapActivityRepo() implements MapActivityRepository {
@@ -336,10 +334,8 @@ final class _StubMapActivityRepo() implements MapActivityRepository {
   ) async => Err(AppError.fromCode('INTERNAL_SERVER_ERROR'));
 
   @override
-  Future<void> setGpsTrackingEnabled(
-    bool enabled, {
-    int? intervalSeconds,
-  }) async {}
+  Future<void> setGpsTrackingEnabled(bool enabled, {int? intervalSeconds}) =>
+      Future<void>.value();
 
   @override
   Stream<({double lat, double lon, double accuracy})>
@@ -421,13 +417,13 @@ void main() {
       overrideDb: db,
       schemaSqlOverride: schemaSql,
     );
-    final dio = Dio(BaseOptions(baseUrl: 'http://127.0.0.1:8000'))
+    final dio = Dio(.new(baseUrl: 'http://127.0.0.1:8000'))
       ..httpClientAdapter = _FakeDioAdapter();
     deps = await AppDependencies.create(
-      overrideDb: SqliteDatabase.instance,
+      overrideDb: .instance,
       overrideTokenStore: tokenStore,
-      overrideDioClient: DioClient(tokenStore: tokenStore, dio: dio),
-      overridePkceClient: OAuthPkceClient(),
+      overrideDioClient: .new(tokenStore: tokenStore, dio: dio),
+      overridePkceClient: .new(),
       overridePushProvider: _StubPushProvider(),
     );
   });
@@ -502,7 +498,7 @@ void main() {
         final testDeps = AppDependencies(
           core: deps.core,
           platform: deps.platform,
-          repositories: RepositoryDependencies(
+          repositories: .new(
             authRepository: _StubAuthRepo(),
             profileRepository: stubProfileRepo,
             friendsRepository: deps.friendsRepository,

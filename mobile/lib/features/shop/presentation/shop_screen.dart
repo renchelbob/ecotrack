@@ -177,9 +177,7 @@ final class const _ShopLoadedBody({
             decoration: const BoxDecoration(
               color: EcoColors.surfaceSubtle,
               borderRadius: .all(.circular(16)),
-              border: .fromBorderSide(
-                BorderSide(color: EcoColors.borderMuted, width: 1),
-              ),
+              border: .fromBorderSide(BorderSide(color: EcoColors.borderMuted)),
             ),
             child: Padding(
               padding: const .all(10),
@@ -220,7 +218,7 @@ final class const _ShopLoadedBody({
           ),
           const SizedBox(height: 12),
           SizedBox(
-            height: 40,
+            height: 48,
             child: ListView(
               scrollDirection: .horizontal,
               children: categories
@@ -453,7 +451,7 @@ final class _CartScreenState() extends State<CartScreen> {
                   decoration: const BoxDecoration(
                     color: EcoColors.surfacePrimary,
                     border: Border(
-                      top: BorderSide(color: EcoColors.borderMuted, width: 1),
+                      top: BorderSide(color: EcoColors.borderMuted),
                     ),
                   ),
                   child: Padding(

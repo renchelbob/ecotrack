@@ -1,6 +1,4 @@
 import 'dart:async';
-import 'dart:convert';
-import 'dart:io';
 import 'dart:math' as math;
 
 import 'package:dio_cache_interceptor/dio_cache_interceptor.dart';
@@ -21,12 +19,19 @@ import 'package:go_router/go_router.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:material_ui/material_ui.dart';
-import 'package:path_provider/path_provider.dart';
 import 'package:url_launcher/url_launcher.dart';
+
+const String _defaultMapTileUrlTemplate = String.fromEnvironment(
+  'MAP_TILE_URL_TEMPLATE',
+  defaultValue: 'https://basemaps.cartocdn.com/light_all/{z}/{x}/{y}@2x.png',
+);
+const String _mapTileUserAgent = 'EcoTrackMobile/1.0 (https://ecotrack.ru)';
 
 final class const MapActivityScreen({
   final MapScreenMode initialMode = .myRoutes,
   final String? initialDateIso,
+  final String? tileUrlTemplate,
+  final CacheStore? tileCacheStore,
   super.key,
 }) extends StatefulWidget {
   @override
@@ -36,22 +41,39 @@ final class const MapActivityScreen({
 final class _MapActivityScreenState() extends State<MapActivityScreen> {
   final MapController _mapController = MapController();
   final LayerHitNotifier<int> _segmentHitNotifier = ValueNotifier(null);
-  final CacheStore _tileCacheStore = BackupCacheStore(
-    primary: MemCacheStore(
-      maxSize: 16 * 1024 * 1024,
-      maxEntrySize: 1024 * 1024,
-    ),
-    secondary: _FileTileCacheStore(),
-  );
+  late final CacheStore _tileCacheStore;
 
   StreamSubscription<MapEvent>? _mapEventSub;
   Timer? _bboxDebounceTimer;
   double _currentZoom = 13.0;
+  int? _selectedStartSeq;
+  int? _selectedEndSeq;
+  String? _armedHandle;
+  Offset? _dragScreenOffset;
+
+  String get _effectiveTileUrl =>
+      widget.tileUrlTemplate ?? _defaultMapTileUrlTemplate;
 
   @override
   void initState() {
     super.initState();
     final bloc = context.read<MapActivityBloc>();
+    final storage = bloc.tileCacheStorage;
+    _tileCacheStore =
+        widget.tileCacheStore ??
+        BackupCacheStore(
+          primary: MemCacheStore(
+            maxSize: 16 * 1024 * 1024,
+            maxEntrySize: 1024 * 1024,
+          ),
+          secondary: storage != null
+              ? _StorageBackedTileCacheStore(storage)
+              : MemCacheStore(
+                  maxSize: 8 * 1024 * 1024,
+                  maxEntrySize: 1024 * 1024,
+                ),
+        );
+
     final initialDate = widget.initialDateIso;
     if (bloc.state is MapActivityLoading) {
       bloc.add(
@@ -117,6 +139,127 @@ final class _MapActivityScreenState() extends State<MapActivityScreen> {
     }
   }
 
+  _SegmentSelectionView? _resolveSelection(DailyActivityDetail? detail) {
+    if (detail == null || detail.trackPoints.length < 2) {
+      return null;
+    }
+    final pts = detail.trackPoints;
+    final selStart = _selectedStartSeq;
+    final selEnd = _selectedEndSeq;
+    if (selStart != null && selEnd != null) {
+      final sIdx = pts.indexWhere((p) => p.seqNo == selStart);
+      final eIdx = pts.indexWhere((p) => p.seqNo == selEnd);
+      if (sIdx != -1 && eIdx != -1 && sIdx < eIdx) {
+        return _SegmentSelectionView(
+          startSeq: selStart,
+          endSeq: selEnd,
+          startIdx: sIdx,
+          endIdx: eIdx,
+          armedHandle: _armedHandle,
+        );
+      }
+    }
+    final firstWalk = _extractUnallocatedWalkingRuns(detail).firstOrNull;
+    if (firstWalk != null) {
+      final sIdx = pts.indexWhere((p) => p.seqNo == firstWalk.startSeq);
+      final eIdx = pts.indexWhere((p) => p.seqNo == firstWalk.endSeq);
+      if (sIdx != -1 && eIdx != -1 && sIdx < eIdx) {
+        return _SegmentSelectionView(
+          startSeq: firstWalk.startSeq,
+          endSeq: firstWalk.endSeq,
+          startIdx: sIdx,
+          endIdx: eIdx,
+          armedHandle: _armedHandle,
+        );
+      }
+    }
+    return _SegmentSelectionView(
+      startSeq: pts.first.seqNo,
+      endSeq: pts.last.seqNo,
+      startIdx: 0,
+      endIdx: pts.length - 1,
+      armedHandle: _armedHandle,
+    );
+  }
+
+  void _snapHandleToLatLng(
+    String handle,
+    LatLng target,
+    DailyActivityDetail detail,
+  ) {
+    final resolved = _resolveSelection(detail);
+    if (resolved == null) return;
+    final pts = detail.trackPoints;
+    final minIdx = handle == 'A' ? 0 : resolved.startIdx + 1;
+    final maxIdx = handle == 'A' ? resolved.endIdx - 1 : pts.length - 1;
+    if (minIdx > maxIdx) return;
+
+    var bestIdx = minIdx;
+    var bestScore = double.infinity;
+    final cosLat = math.cos(target.latitude * math.pi / 180.0);
+    for (var i = minIdx; i <= maxIdx; i++) {
+      final dLat = pts[i].lat - target.latitude;
+      final dLon = (pts[i].lon - target.longitude) * cosLat;
+      final score = dLat * dLat + dLon * dLon;
+      if (score < bestScore) {
+        bestScore = score;
+        bestIdx = i;
+      }
+    }
+
+    final nextStart = handle == 'A' ? pts[bestIdx].seqNo : resolved.startSeq;
+    final nextEnd = handle == 'B' ? pts[bestIdx].seqNo : resolved.endSeq;
+    if (nextStart != _selectedStartSeq || nextEnd != _selectedEndSeq) {
+      setState(() {
+        _selectedStartSeq = nextStart;
+        _selectedEndSeq = nextEnd;
+      });
+    }
+  }
+
+  void _onHandleTapped(String handle) {
+    setState(() {
+      _armedHandle = _armedHandle == handle ? null : handle;
+    });
+    if (_armedHandle != null) {
+      EcoTopBannerOverlay.instance.showMessage(
+        'Перетащите маркер $handle вдоль маршрута или коснитесь точки на карте',
+      );
+    }
+  }
+
+  void _onHandleDragStarted(String handle, LatLng initialLatLng) {
+    _dragScreenOffset = _mapController.camera.latLngToScreenOffset(
+      initialLatLng,
+    );
+    if (_armedHandle != handle) {
+      setState(() => _armedHandle = handle);
+    }
+  }
+
+  void _onHandleDragUpdated(
+    String handle,
+    Offset delta,
+    DailyActivityDetail? detail,
+  ) {
+    final prev = _dragScreenOffset;
+    if (prev == null || detail == null) return;
+    final next = prev + delta;
+    _dragScreenOffset = next;
+    final latLng = _mapController.camera.screenOffsetToLatLng(next);
+    _snapHandleToLatLng(handle, latLng, detail);
+  }
+
+  void _onHandleDragEnded() {
+    _dragScreenOffset = null;
+  }
+
+  void _onRouteMapTapped(LatLng latLng, DailyActivityDetail? detail) {
+    final handle = _armedHandle;
+    if (handle == null || detail == null) return;
+    _snapHandleToLatLng(handle, latLng, detail);
+  }
+
   void _onPolylineHitChanged() {
     final hit = _segmentHitNotifier.value;
     final state = context.read<MapActivityBloc>().state;
@@ -144,6 +287,13 @@ final class _MapActivityScreenState() extends State<MapActivityScreen> {
       final matched = (runIdx >= 0 && runIdx < runs.length)
           ? runs[runIdx]
           : null;
+      if (matched != null) {
+        setState(() {
+          _selectedStartSeq = matched.startSeq;
+          _selectedEndSeq = matched.endSeq;
+          _armedHandle = null;
+        });
+      }
       unawaited(
         _openTransportSheet(
           state: state,
@@ -155,12 +305,13 @@ final class _MapActivityScreenState() extends State<MapActivityScreen> {
       return;
     }
     if (hitIndex < detail.allocations.length) {
-      unawaited(
-        _openTransportSheet(
-          state: state,
-          existingAllocation: detail.allocations[hitIndex],
-        ),
-      );
+      final alloc = detail.allocations[hitIndex];
+      setState(() {
+        _selectedStartSeq = alloc.startSeqNo;
+        _selectedEndSeq = alloc.endSeqNo;
+        _armedHandle = null;
+      });
+      unawaited(_openTransportSheet(state: state, existingAllocation: alloc));
     }
   }
 
@@ -176,6 +327,12 @@ final class _MapActivityScreenState() extends State<MapActivityScreen> {
       );
       return;
     }
+    final resolved = _resolveSelection(detail);
+    final effectiveRange =
+        initialRange ??
+        (resolved != null
+            ? (startSeq: resolved.startSeq, endSeq: resolved.endSeq)
+            : null);
     final bloc = context.read<MapActivityBloc>();
     await showModalBottomSheet<void>(
       context: context,
@@ -191,7 +348,14 @@ final class _MapActivityScreenState() extends State<MapActivityScreen> {
           presets: state.routeView.presets,
           userCarGPerKm: state.routeView.userCarGPerKm,
           existingAllocation: existingAllocation,
-          initialRange: initialRange,
+          initialRange: effectiveRange,
+          onRangeChanged: (range) {
+            if (!mounted) return;
+            setState(() {
+              _selectedStartSeq = range.startSeq;
+              _selectedEndSeq = range.endSeq;
+            });
+          },
         ),
       ),
     );
@@ -264,6 +428,7 @@ final class _MapActivityScreenState() extends State<MapActivityScreen> {
         child: _SuggestWastePointSheet(
           initialCenter: center,
           tileCacheStore: _tileCacheStore,
+          tileUrlTemplate: _effectiveTileUrl,
         ),
       ),
     );
@@ -324,8 +489,21 @@ final class _MapActivityScreenState() extends State<MapActivityScreen> {
               ready: state,
               mapController: _mapController,
               tileCacheStore: _tileCacheStore,
+              tileUrlTemplate: _effectiveTileUrl,
               segmentHitNotifier: _segmentHitNotifier,
               currentZoom: _currentZoom,
+              selectedSegment: state.mode == .myRoutes
+                  ? _resolveSelection(state.routeView.detail)
+                  : null,
+              segmentCallbacks: _SegmentSelectionCallbacks(
+                onHandleTapped: _onHandleTapped,
+                onDragStarted: _onHandleDragStarted,
+                onDragUpdated: (handle, delta) =>
+                    _onHandleDragUpdated(handle, delta, state.routeView.detail),
+                onDragEnded: _onHandleDragEnded,
+                onMapTapped: (latLng) =>
+                    _onRouteMapTapped(latLng, state.routeView.detail),
+              ),
               onOpenGpsInterval: () => unawaited(_openGpsIntervalPicker(state)),
               onOpenTransportSheet: () =>
                   unawaited(_openTransportSheet(state: state)),
@@ -338,12 +516,32 @@ final class _MapActivityScreenState() extends State<MapActivityScreen> {
       );
 }
 
+final class const _SegmentSelectionView({
+  required final int startSeq,
+  required final int endSeq,
+  required final int startIdx,
+  required final int endIdx,
+  final String? armedHandle,
+});
+
+final class const _SegmentSelectionCallbacks({
+  required final ValueChanged<String> onHandleTapped,
+  required final void Function(String handle, LatLng initialLatLng)
+  onDragStarted,
+  required final void Function(String handle, Offset delta) onDragUpdated,
+  required final VoidCallback onDragEnded,
+  required final ValueChanged<LatLng> onMapTapped,
+});
+
 final class const _MapViewportStack({
   required final MapActivityReady ready,
   required final MapController mapController,
   required final CacheStore tileCacheStore,
+  required final String tileUrlTemplate,
   required final LayerHitNotifier<int> segmentHitNotifier,
   required final double currentZoom,
+  required final _SegmentSelectionView? selectedSegment,
+  required final _SegmentSelectionCallbacks segmentCallbacks,
   required final VoidCallback onOpenGpsInterval,
   required final VoidCallback onOpenTransportSheet,
   required final VoidCallback onOpenSuggestModal,
@@ -369,13 +567,18 @@ final class const _MapViewportStack({
               interactionOptions: const InteractionOptions(
                 flags: InteractiveFlag.all & ~InteractiveFlag.rotate,
               ),
+              onTap: (_, latLng) {
+                if (ready.mode == .myRoutes) {
+                  segmentCallbacks.onMapTapped(latLng);
+                }
+              },
             ),
             children: [
               TileLayer(
-                urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-                userAgentPackageName: 'ru.ecotrack.mobile',
+                urlTemplate: tileUrlTemplate,
                 tileProvider: CachedTileProvider(
                   store: tileCacheStore,
+                  headers: <String, String>{'User-Agent': _mapTileUserAgent},
                   maxStale: const Duration(days: 14),
                 ),
               ),
@@ -383,8 +586,13 @@ final class const _MapViewportStack({
                 _RoutesPolylineLayer(
                   detail: ready.routeView.detail,
                   hitNotifier: segmentHitNotifier,
+                  selectedSegment: selectedSegment,
                 ),
-                _RoutesBadgesMarkerLayer(detail: ready.routeView.detail),
+                _RoutesBadgesMarkerLayer(
+                  detail: ready.routeView.detail,
+                  selectedSegment: selectedSegment,
+                  segmentCallbacks: segmentCallbacks,
+                ),
               ] else
                 _WasteClusterMapLayer(
                   points: ready.wasteView.points,
@@ -451,6 +659,7 @@ final class const _MapViewportStack({
             bottom: 102,
             child: _RoutesBottomOverlayCard(
               routeView: ready.routeView,
+              selectedSegment: selectedSegment,
               onOpenTransportSheet: onOpenTransportSheet,
             ),
           )
@@ -527,14 +736,16 @@ _extractUnallocatedWalkingRuns(DailyActivityDetail detail) {
       (a) => p.seqNo > a.startSeqNo && p.seqNo <= a.endSeqNo,
     );
     if (p.motionClass == .walking && !isAllocated) {
-      final startIdx = i > 0 ? i - 1 : i;
+      final hasContiguousPrev = i > 0 && p.seqNo == pts[i - 1].seqNo + 1;
+      final startIdx = hasContiguousPrev ? i - 1 : i;
       var endIdx = i;
       while (endIdx + 1 < pts.length) {
         final next = pts[endIdx + 1];
+        final isContiguous = next.seqNo == pts[endIdx].seqNo + 1;
         final nextAllocated = detail.allocations.any(
           (a) => next.seqNo > a.startSeqNo && next.seqNo <= a.endSeqNo,
         );
-        if (next.motionClass == .walking && !nextAllocated) {
+        if (isContiguous && next.motionClass == .walking && !nextAllocated) {
           endIdx++;
         } else {
           break;
@@ -561,20 +772,36 @@ _extractUnallocatedWalkingRuns(DailyActivityDetail detail) {
   return runs;
 }
 
-List<List<LatLng>> _extractIndoorPacingRuns(DailyActivityDetail detail) {
+List<List<LatLng>> _extractContiguousMotionRuns(
+  DailyActivityDetail detail,
+  TrackPointMotionClass motionClass, {
+  bool includeAnchorPrev = false,
+}) {
   final pts = detail.trackPoints;
   final runs = <List<LatLng>>[];
   var i = 0;
   while (i < pts.length) {
-    if (pts[i].motionClass == .indoorPacing) {
-      final coords = <LatLng>[LatLng(pts[i].lat, pts[i].lon)];
-      while (i + 1 < pts.length && pts[i + 1].motionClass == .indoorPacing) {
-        i++;
-        coords.add(LatLng(pts[i].lat, pts[i].lon));
+    if (pts[i].motionClass == motionClass) {
+      final hasContiguousPrev =
+          includeAnchorPrev && i > 0 && pts[i].seqNo == pts[i - 1].seqNo + 1;
+      final startIdx = hasContiguousPrev ? i - 1 : i;
+      var endIdx = i;
+      while (endIdx + 1 < pts.length &&
+          pts[endIdx + 1].seqNo == pts[endIdx].seqNo + 1 &&
+          pts[endIdx + 1].motionClass == motionClass) {
+        endIdx++;
       }
-      runs.add(coords);
+      final rawCoords = <LatLng>[
+        for (var k = startIdx; k <= endIdx; k++) LatLng(pts[k].lat, pts[k].lon),
+      ];
+      final simplified = rawCoords.length > 2000
+          ? PolylineSimplifier.simplifyRdp(rawCoords)
+          : rawCoords;
+      runs.add(simplified);
+      i = endIdx + 1;
+    } else {
+      i++;
     }
-    i++;
   }
   return runs;
 }
@@ -582,6 +809,7 @@ List<List<LatLng>> _extractIndoorPacingRuns(DailyActivityDetail detail) {
 final class const _RoutesPolylineLayer({
   required final DailyActivityDetail? detail,
   required final LayerHitNotifier<int> hitNotifier,
+  final _SegmentSelectionView? selectedSegment,
 }) extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
@@ -602,7 +830,10 @@ final class const _RoutesPolylineLayer({
         ),
       );
     }
-    final indoorRuns = _extractIndoorPacingRuns(currentDetail);
+    final indoorRuns = _extractContiguousMotionRuns(
+      currentDetail,
+      .indoorPacing,
+    );
     for (final run in indoorRuns) {
       if (run.length >= 2) {
         polylines.add(
@@ -616,19 +847,22 @@ final class const _RoutesPolylineLayer({
         );
       }
     }
-    final vehiclePts = currentDetail.trackPoints
-        .where((p) => p.motionClass == .vehicleSuspected)
-        .map((p) => LatLng(p.lat, p.lon))
-        .toList();
-    if (vehiclePts.length >= 2) {
-      polylines.add(
-        Polyline<int>(
-          points: vehiclePts,
-          color: EcoColors.fillDisabled,
-          strokeWidth: 2.5,
-          hitValue: -1,
-        ),
-      );
+    final vehicleRuns = _extractContiguousMotionRuns(
+      currentDetail,
+      .vehicleSuspected,
+      includeAnchorPrev: true,
+    );
+    for (final run in vehicleRuns) {
+      if (run.length >= 2) {
+        polylines.add(
+          Polyline<int>(
+            points: run,
+            color: EcoColors.fillDisabled,
+            strokeWidth: 2.5,
+            hitValue: -1,
+          ),
+        );
+      }
     }
     for (var i = 0; i < currentDetail.allocations.length; i++) {
       final coords = currentDetail.allocations[i].coordinates
@@ -647,12 +881,31 @@ final class const _RoutesPolylineLayer({
         );
       }
     }
+    final selection = selectedSegment;
+    if (selection != null) {
+      final pts = currentDetail.trackPoints;
+      final selectedCoords = <LatLng>[
+        for (var k = selection.startIdx; k <= selection.endIdx; k++)
+          LatLng(pts[k].lat, pts[k].lon),
+      ];
+      if (selectedCoords.length >= 2) {
+        polylines.add(
+          Polyline<int>(
+            points: selectedCoords,
+            color: EcoColors.inkPrimary.withValues(alpha: 0.22),
+            strokeWidth: 11.0,
+          ),
+        );
+      }
+    }
     return PolylineLayer<int>(polylines: polylines, hitNotifier: hitNotifier);
   }
 }
 
 final class const _RoutesBadgesMarkerLayer({
   required final DailyActivityDetail? detail,
+  required final _SegmentSelectionView? selectedSegment,
+  required final _SegmentSelectionCallbacks segmentCallbacks,
 }) extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
@@ -661,7 +914,10 @@ final class const _RoutesBadgesMarkerLayer({
       return const SizedBox.shrink();
     }
     final markers = <Marker>[];
-    final indoorRuns = _extractIndoorPacingRuns(currentDetail);
+    final indoorRuns = _extractContiguousMotionRuns(
+      currentDetail,
+      .indoorPacing,
+    );
     for (final run in indoorRuns) {
       final anchor = run[run.length ~/ 2];
       markers.add(
@@ -704,7 +960,6 @@ final class const _RoutesBadgesMarkerLayer({
           Marker(
             point: coords[coords.length ~/ 2],
             width: 120,
-            height: 30,
             child: DecoratedBox(
               decoration: const BoxDecoration(
                 color: EcoColors.inkPrimary,
@@ -724,10 +979,105 @@ final class const _RoutesBadgesMarkerLayer({
         );
       }
     }
+    final selection = selectedSegment;
+    if (selection != null && currentDetail.trackPoints.length >= 2) {
+      final startPt = currentDetail.trackPoints[selection.startIdx];
+      final endPt = currentDetail.trackPoints[selection.endIdx];
+      final startLatLng = LatLng(startPt.lat, startPt.lon);
+      final endLatLng = LatLng(endPt.lat, endPt.lon);
+      markers
+        ..add(
+          Marker(
+            point: startLatLng,
+            width: 48,
+            height: 48,
+            child: _SegmentBoundaryHandle(
+              label: 'A',
+              isPrimaryFill: true,
+              isArmed: selection.armedHandle == 'A',
+              onTap: () => segmentCallbacks.onHandleTapped('A'),
+              onPanStart: (_) =>
+                  segmentCallbacks.onDragStarted('A', startLatLng),
+              onPanUpdate: (d) => segmentCallbacks.onDragUpdated('A', d.delta),
+              onPanEnd: (_) => segmentCallbacks.onDragEnded(),
+            ),
+          ),
+        )
+        ..add(
+          Marker(
+            point: endLatLng,
+            width: 48,
+            height: 48,
+            child: _SegmentBoundaryHandle(
+              label: 'B',
+              isPrimaryFill: false,
+              isArmed: selection.armedHandle == 'B',
+              onTap: () => segmentCallbacks.onHandleTapped('B'),
+              onPanStart: (_) => segmentCallbacks.onDragStarted('B', endLatLng),
+              onPanUpdate: (d) => segmentCallbacks.onDragUpdated('B', d.delta),
+              onPanEnd: (_) => segmentCallbacks.onDragEnded(),
+            ),
+          ),
+        );
+    }
     if (markers.isEmpty) {
       return const SizedBox.shrink();
     }
     return MarkerLayer(markers: markers);
+  }
+}
+
+final class const _SegmentBoundaryHandle({
+  required final String label,
+  required final bool isPrimaryFill,
+  required final bool isArmed,
+  required final VoidCallback onTap,
+  required final GestureDragStartCallback onPanStart,
+  required final GestureDragUpdateCallback onPanUpdate,
+  required final GestureDragEndCallback onPanEnd,
+}) extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    final bgColor = isPrimaryFill
+        ? EcoColors.inkPrimary
+        : EcoColors.surfacePrimary;
+    final fgColor = isPrimaryFill
+        ? EcoColors.surfacePrimary
+        : EcoColors.inkPrimary;
+    final borderColor = isPrimaryFill
+        ? EcoColors.surfacePrimary
+        : EcoColors.inkPrimary;
+    return GestureDetector(
+      behavior: .opaque,
+      onTap: onTap,
+      onPanStart: onPanStart,
+      onPanUpdate: onPanUpdate,
+      onPanEnd: onPanEnd,
+      child: Center(
+        child: DecoratedBox(
+          decoration: BoxDecoration(
+            color: bgColor,
+            shape: .circle,
+            border: .fromBorderSide(
+              BorderSide(color: borderColor, width: isArmed ? 3.0 : 2.0),
+            ),
+          ),
+          child: SizedBox(
+            width: isArmed ? 32 : 28,
+            height: isArmed ? 32 : 28,
+            child: Center(
+              child: Text(
+                label,
+                style: EcoTypography.labelSmall.copyWith(
+                  color: fgColor,
+                  fontWeight: .w700,
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
   }
 }
 
@@ -744,7 +1094,9 @@ final class const _WasteClusterMapLayer({
             width: 48,
             height: 48,
             child: _WastePinMarker(
-              isUnverified: pt.status == .unverified || pt.trustScore < 60,
+              isUnverified: pt.status == .unverified || pt.trustScore < 25.0,
+              isInactive:
+                  pt.status == .temporarilyClosed || pt.status == .removed,
               onTap: () => context.read<MapActivityBloc>().add(
                 MapWastePointTapped(pt.id),
               ),
@@ -757,7 +1109,12 @@ final class const _WasteClusterMapLayer({
     return MarkerClusterLayerWidget(
       options: MarkerClusterLayerOptions(
         maxClusterRadius: radius,
+        maxZoom: 19.0,
         size: const Size(48, 48),
+        spiderfyCircleRadius: 56,
+        spiderfySpiralDistanceMultiplier: 2,
+        showPolygon: false,
+        markerChildBehavior: true,
         markers: markers,
         builder: (context, clusterMarkers) => DecoratedBox(
           decoration: const BoxDecoration(
@@ -781,88 +1138,91 @@ final class const _WasteClusterMapLayer({
 
 final class const _WastePinMarker({
   required final bool isUnverified,
+  final bool isInactive = false,
   required final VoidCallback onTap,
 }) extends StatelessWidget {
   @override
-  Widget build(BuildContext context) => GestureDetector(
-    onTap: onTap,
-    child: Center(
-      child: Stack(
-        clipBehavior: .none,
-        children: [
-          if (isUnverified)
-            const CustomPaint(
-              painter: _DashedCircleBorderPainter(
-                color: EcoColors.inkSecondary,
-              ),
-              child: SizedBox(
-                width: 40,
-                height: 40,
-                child: DecoratedBox(
-                  decoration: BoxDecoration(
-                    color: EcoColors.surfacePrimary,
-                    shape: .circle,
-                  ),
-                  child: Icon(
-                    LucideIcons.recycle,
-                    size: 19,
-                    color: EcoColors.inkSecondary,
-                  ),
-                ),
-              ),
-            )
-          else
-            const DecoratedBox(
-              decoration: BoxDecoration(
-                color: EcoColors.surfacePrimary,
-                shape: .circle,
-                border: .fromBorderSide(
-                  BorderSide(color: EcoColors.inkPrimary, width: 2),
-                ),
-              ),
-              child: SizedBox(
-                width: 40,
-                height: 40,
-                child: Icon(
-                  LucideIcons.recycle,
-                  size: 20,
-                  color: EcoColors.inkPrimary,
-                ),
-              ),
-            ),
-          if (isUnverified)
-            Positioned(
-              right: -2,
-              top: -2,
-              child: SizedBox(
-                width: 17,
-                height: 17,
-                child: DecoratedBox(
-                  decoration: const BoxDecoration(
-                    color: EcoColors.inkPrimary,
-                    shape: .circle,
-                    border: .fromBorderSide(
-                      BorderSide(color: EcoColors.surfacePrimary, width: 1.5),
+  Widget build(BuildContext context) {
+    final borderColor = isInactive
+        ? EcoColors.fillDisabled
+        : (isUnverified ? EcoColors.inkSecondary : EcoColors.inkPrimary);
+    final iconColor = isInactive
+        ? EcoColors.fillDisabled
+        : (isUnverified ? EcoColors.inkSecondary : EcoColors.inkPrimary);
+    return GestureDetector(
+      onTap: onTap,
+      child: Center(
+        child: Stack(
+          clipBehavior: .none,
+          children: [
+            if (isUnverified)
+              CustomPaint(
+                painter: _DashedCircleBorderPainter(color: borderColor),
+                child: SizedBox(
+                  width: 40,
+                  height: 40,
+                  child: DecoratedBox(
+                    decoration: const BoxDecoration(
+                      color: EcoColors.surfacePrimary,
+                      shape: .circle,
+                    ),
+                    child: Icon(
+                      LucideIcons.recycle,
+                      size: 19,
+                      color: iconColor,
                     ),
                   ),
-                  child: Center(
-                    child: Text(
-                      '?',
-                      style: EcoTypography.labelSmall.copyWith(
-                        fontSize: 10,
-                        fontWeight: .w700,
-                        color: EcoColors.surfacePrimary,
-                        height: 1.0,
+                ),
+              )
+            else
+              DecoratedBox(
+                decoration: BoxDecoration(
+                  color: EcoColors.surfacePrimary,
+                  shape: .circle,
+                  border: .fromBorderSide(
+                    BorderSide(color: borderColor, width: 2),
+                  ),
+                ),
+                child: SizedBox(
+                  width: 40,
+                  height: 40,
+                  child: Icon(LucideIcons.recycle, size: 20, color: iconColor),
+                ),
+              ),
+            if (isUnverified)
+              Positioned(
+                right: -2,
+                top: -2,
+                child: SizedBox(
+                  width: 17,
+                  height: 17,
+                  child: DecoratedBox(
+                    decoration: const BoxDecoration(
+                      color: EcoColors.inkPrimary,
+                      shape: .circle,
+                      border: .fromBorderSide(
+                        BorderSide(color: EcoColors.surfacePrimary, width: 1.5),
+                      ),
+                    ),
+                    child: Center(
+                      child: Text(
+                        '?',
+                        style: EcoTypography.labelSmall.copyWith(
+                          fontSize: 10,
+                          fontWeight: .w700,
+                          color: EcoColors.surfacePrimary,
+                          height: 1.0,
+                        ),
                       ),
                     ),
                   ),
                 ),
               ),
-            ),
-        ],
+          ],
+        ),
       ),
-    ),
-  );
+    );
+  }
 }
 
 final class const _DashedCircleBorderPainter({required final Color color})
@@ -1063,7 +1423,7 @@ final class const _FractionFilterBar({
                 color: EcoColors.surfacePrimary,
                 borderRadius: .all(.circular(999)),
                 border: .fromBorderSide(
-                  BorderSide(color: EcoColors.borderMuted, width: 1),
+                  BorderSide(color: EcoColors.borderMuted),
                 ),
               ),
               child: Padding(
@@ -1082,6 +1442,7 @@ final class const _FractionFilterBar({
 
 final class const _RoutesBottomOverlayCard({
   required final MapRouteViewState routeView,
+  required final _SegmentSelectionView? selectedSegment,
   required final VoidCallback onOpenTransportSheet,
 }) extends StatelessWidget {
   @override
@@ -1126,6 +1487,7 @@ final class const _RoutesBottomOverlayCard({
 
     final ptsCount = detail?.trackPoints.length ?? 0;
     final totalCo2 = detail?.summary.totalCo2SavedGrams ?? 0;
+    final sel = selectedSegment;
     return DecoratedBox(
       decoration: const BoxDecoration(
         color: EcoColors.surfacePrimary,
@@ -1149,7 +1511,9 @@ final class const _RoutesBottomOverlayCard({
                     style: EcoTypography.bodyLarge,
                   ),
                   Text(
-                    'Экономия CO₂: $totalCo2 г',
+                    sel != null
+                        ? 'Экономия CO₂: $totalCo2 г · A #${sel.startSeq} — B #${sel.endSeq}'
+                        : 'Экономия CO₂: $totalCo2 г',
                     style: EcoTypography.labelSmall,
                   ),
                 ],
@@ -1204,6 +1568,7 @@ final class const _TransportAllocationBottomSheet({
   required final double userCarGPerKm,
   final RouteSegmentAllocationItem? existingAllocation,
   final ({int startSeq, int endSeq})? initialRange,
+  final ValueChanged<({int startSeq, int endSeq})>? onRangeChanged,
 }) extends StatefulWidget {
   @override
   State<_TransportAllocationBottomSheet> createState() =>
@@ -1274,6 +1639,7 @@ final class _TransportAllocationBottomSheetState()
       _startIndex = nextStart;
       _endIndex = nextEnd;
     });
+    widget.onRangeChanged?.call((startSeq: _startSeq, endSeq: _endSeq));
   }
 
   List<RouteSegmentAllocationInput> _buildAllocationPayload() {
@@ -1308,10 +1674,11 @@ final class _TransportAllocationBottomSheetState()
     final intervalPts = pts
         .where((p) => p.seqNo > start && p.seqNo <= end)
         .toList();
-    final distM = math.max(
-      1.0,
-      intervalPts.fold<double>(0.0, (acc, p) => acc + p.deltaDistanceM),
+    final rawDistM = intervalPts.fold<double>(
+      0.0,
+      (acc, p) => acc + p.deltaDistanceM,
     );
+    final distM = Co2Math.roundHalfUpDecimals(rawDistM, 2);
     final steps = intervalPts.fold<int>(0, (acc, p) => acc + p.deltaSteps);
     final hasVehicleMotion = intervalPts.any(
       (p) => p.motionClass == .vehicleSuspected,
@@ -1352,7 +1719,6 @@ final class _TransportAllocationBottomSheetState()
                   _startIndex.toDouble(),
                   _endIndex.toDouble(),
                 ),
-                min: 0,
                 max: (pts.length - 1).toDouble(),
                 divisions: pts.length - 1,
                 activeColor: EcoColors.inkPrimary,
@@ -1463,7 +1829,8 @@ final class _TransportAllocationBottomSheetState()
             ),
             const SizedBox(height: 14),
             ElevatedButton(
-              onPressed: widget.detail.isEditable && !hasVehicleMotion
+              onPressed:
+                  widget.detail.isEditable && !hasVehicleMotion && distM > 0.0
                   ? () {
                       bloc.add(MapAllocationsSaved(_buildAllocationPayload()));
                       Navigator.of(context).pop();
@@ -1536,6 +1903,9 @@ final class const _WastePointDetailSheet({
     final verifiedLabel = _formatVerifiedLabel(point.lastVerifiedAt);
     final operatorText = point.operatorName?.trim();
     final hoursText = point.openingHours?.trim();
+    final isUnverified = point.status == .unverified || point.trustScore < 25.0;
+    final isVerifiedActive =
+        point.status == .active && point.trustScore >= 50.0;
 
     return DecoratedBox(
       decoration: const BoxDecoration(
@@ -1558,7 +1928,28 @@ final class const _WastePointDetailSheet({
                   Expanded(
                     child: Text(point.title, style: EcoTypography.titleMedium),
                   ),
-                  Chip(label: Text('Доверие ${point.trustScore.round()}%')),
+                  Chip(
+                    backgroundColor: isVerifiedActive
+                        ? EcoColors.inkPrimary
+                        : (isUnverified
+                              ? EcoColors.surfaceSubtle
+                              : EcoColors.surfacePrimary),
+                    side: BorderSide(
+                      color: isUnverified
+                          ? EcoColors.borderMuted
+                          : EcoColors.inkPrimary,
+                    ),
+                    label: Text(
+                      isUnverified
+                          ? 'Доверие ${point.trustScore.round()}% · ?'
+                          : 'Доверие ${point.trustScore.round()}%',
+                      style: EcoTypography.labelSmall.copyWith(
+                        color: isVerifiedActive
+                            ? EcoColors.surfacePrimary
+                            : EcoColors.inkPrimary,
+                      ),
+                    ),
+                  ),
                   IconButton(
                     onPressed: onClose,
                     icon: const Icon(LucideIcons.x),
@@ -1654,6 +2045,7 @@ final class const _WastePointDetailSheet({
 final class const _SuggestWastePointSheet({
   required final LatLng initialCenter,
   required final CacheStore tileCacheStore,
+  required final String tileUrlTemplate,
 }) extends StatefulWidget {
   @override
   State<_SuggestWastePointSheet> createState() =>
@@ -1667,6 +2059,8 @@ final class _SuggestWastePointSheetState()
   final MapController _miniMapController = MapController();
   late final ValueNotifier<LatLng> _coordsNotifier;
   final Set<WasteFractionCode> _selectedFractions = {.plastic};
+  String? _titleError;
+  String? _hoursError;
 
   @override
   void initState() {
@@ -1681,6 +2075,42 @@ final class _SuggestWastePointSheetState()
     _miniMapController.dispose();
     _coordsNotifier.dispose();
     super.dispose();
+  }
+
+  void _submitSuggestion(MapActivityBloc bloc) {
+    final title = _titleController.text.trim();
+    final hours = _hoursController.text.trim();
+    String? nextTitleError;
+    String? nextHoursError;
+    if (title.length < 3) {
+      nextTitleError = 'Название должно содержать минимум 3 символа';
+    } else if (title.length > 160) {
+      nextTitleError = 'Название не должно превышать 160 символов';
+    }
+    if (hours.length > 160) {
+      nextHoursError = 'Режим работы не должен превышать 160 символов';
+    }
+    if (nextTitleError != null || nextHoursError != null) {
+      setState(() {
+        _titleError = nextTitleError;
+        _hoursError = nextHoursError;
+      });
+      return;
+    }
+
+    final coords = _coordsNotifier.value;
+    bloc.add(
+      MapWastePointSuggested(
+        SuggestWastePointRequest(
+          title: title,
+          openingHours: hours.isEmpty ? null : hours,
+          acceptedFractions: _selectedFractions.toList(),
+          lat: coords.latitude,
+          lon: coords.longitude,
+        ),
+      ),
+    );
+    Navigator.of(context).pop();
   }
 
   @override
@@ -1751,10 +2181,12 @@ final class _SuggestWastePointSheetState()
                           ),
                           children: [
                             TileLayer(
-                              urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-                              userAgentPackageName: 'ru.ecotrack.mobile',
+                              urlTemplate: widget.tileUrlTemplate,
                               tileProvider: CachedTileProvider(
                                 store: widget.tileCacheStore,
+                                headers: <String, String>{
+                                  'User-Agent': _mapTileUserAgent,
+                                },
                                 maxStale: const Duration(days: 14),
                               ),
                             ),
@@ -1792,15 +2224,29 @@ final class _SuggestWastePointSheetState()
               const SizedBox(height: 12),
               TextField(
                 controller: _titleController,
-                decoration: const InputDecoration(
+                maxLength: 160,
+                onChanged: (_) {
+                  if (_titleError != null) {
+                    setState(() => _titleError = null);
+                  }
+                },
+                decoration: InputDecoration(
                   labelText: 'Название пункта (например, Сетка у подъезда)',
+                  errorText: _titleError,
                 ),
               ),
               const SizedBox(height: 10),
               TextField(
                 controller: _hoursController,
-                decoration: const InputDecoration(
+                maxLength: 160,
+                onChanged: (_) {
+                  if (_hoursError != null) {
+                    setState(() => _hoursError = null);
+                  }
+                },
+                decoration: InputDecoration(
                   labelText: 'Режим работы (опционально)',
+                  errorText: _hoursError,
                 ),
               ),
               const SizedBox(height: 10),
@@ -1825,23 +2271,7 @@ final class _SuggestWastePointSheetState()
               ),
               const SizedBox(height: 16),
               ElevatedButton(
-                onPressed: () {
-                  final title = _titleController.text.trim();
-                  if (title.isEmpty) return;
-                  final coords = _coordsNotifier.value;
-                  bloc.add(
-                    MapWastePointSuggested(
-                      SuggestWastePointRequest(
-                        title: title,
-                        openingHours: _hoursController.text.trim(),
-                        acceptedFractions: _selectedFractions.toList(),
-                        lat: coords.latitude,
-                        lon: coords.longitude,
-                      ),
-                    ),
-                  );
-                  Navigator.of(context).pop();
-                },
+                onPressed: () => _submitSuggestion(bloc),
                 child: const Text('Отправить на карту'),
               ),
             ],
@@ -1852,55 +2282,15 @@ final class _SuggestWastePointSheetState()
   }
 }
 
-final class _FileTileCacheStore() extends CacheStore {
-  Directory? _dir;
-  bool _unavailable = false;
-
-  Future<Directory?> _resolveDir() async {
-    if (_unavailable) return null;
-    final existing = _dir;
-    if (existing != null) return existing;
-    try {
-      final base = await getTemporaryDirectory();
-      final dir = Directory(
-        '${base.path}${Platform.pathSeparator}ecotrack_tiles',
-      );
-      if (!dir.existsSync()) {
-        await dir.create(recursive: true);
-      }
-      _dir = dir;
-      return dir;
-    } on Exception {
-      _unavailable = true;
-      return null;
-    }
-  }
-
-  File _fileForKey(Directory dir, String key) {
-    final safe = base64Url.encode(utf8.encode(key));
-    return File('${dir.path}${Platform.pathSeparator}$safe.json');
-  }
-
+final class _StorageBackedTileCacheStore(final TileCacheStorage _storage)
+    extends CacheStore {
   @override
-  Future<bool> exists(String key) async {
-    final dir = await _resolveDir();
-    if (dir == null) return false;
-    return await _fileForKey(dir, key).exists();
-  }
+  Future<bool> exists(String key) => _storage.exists(key);
 
   @override
   Future<CacheResponse?> get(String key) async {
-    final dir = await _resolveDir();
-    if (dir == null) return null;
-    final file = _fileForKey(dir, key);
-    if (!file.existsSync()) return null;
-    try {
-      final raw = jsonDecode(await file.readAsString());
-      if (raw is! Map<String, Object?>) return null;
-      return _decodeResponse(raw);
-    } on Exception {
-      return null;
-    }
+    final record = await _storage.getRecord(key);
+    return record != null ? _toResponse(record) : null;
   }
 
   @override
@@ -1908,166 +2298,102 @@ final class _FileTileCacheStore() extends CacheStore {
     RegExp pathPattern, {
     Map<String, String?>? queryParams,
   }) async {
-    final dir = await _resolveDir();
-    if (dir == null) return const [];
+    final records = await _storage.getAllRecords();
     final out = <CacheResponse>[];
-    for (final entity in dir.listSync()) {
-      if (entity is! File) continue;
-      final resp = await _readFile(entity);
-      if (resp != null &&
-          pathExists(resp.url, pathPattern, queryParams: queryParams)) {
-        out.add(resp);
+    for (final record in records) {
+      if (pathExists(record.url, pathPattern, queryParams: queryParams)) {
+        out.add(_toResponse(record));
       }
     }
     return out;
   }
 
-  Future<CacheResponse?> _readFile(File file) async {
-    try {
-      final raw = jsonDecode(await file.readAsString());
-      if (raw is Map<String, Object?>) {
-        return _decodeResponse(raw);
-      }
-    } on Exception {
-      return null;
-    }
-    return null;
-  }
+  @override
+  Future<void> set(CacheResponse response) => _storage.upsertRecord(
+    TileCacheEntryRecord(
+      key: response.key,
+      url: response.url,
+      statusCode: response.statusCode,
+      priorityIndex: response.priority.index,
+      requestDateMs: response.requestDate.millisecondsSinceEpoch,
+      responseDateMs: response.responseDate.millisecondsSinceEpoch,
+      dateMs: response.date?.millisecondsSinceEpoch,
+      expiresMs: response.expires?.millisecondsSinceEpoch,
+      maxStaleMs: response.maxStale?.millisecondsSinceEpoch,
+      eTag: response.eTag,
+      lastModified: response.lastModified,
+      content: response.content,
+      headers: response.headers,
+      ccMaxAge: response.cacheControl.maxAge,
+      ccMaxStale: response.cacheControl.maxStale,
+      ccMinFresh: response.cacheControl.minFresh,
+      ccMustRevalidate: response.cacheControl.mustRevalidate,
+      ccNoCache: response.cacheControl.noCache,
+      ccNoStore: response.cacheControl.noStore,
+      ccPrivacy: response.cacheControl.privacy,
+      ccOther: response.cacheControl.other,
+    ),
+  );
 
   @override
-  Future<void> set(CacheResponse response) async {
-    final dir = await _resolveDir();
-    if (dir == null) return;
-    try {
-      final file = _fileForKey(dir, response.key);
-      await file.writeAsString(jsonEncode(_encodeResponse(response)));
-    } on Exception {
-      _unavailable = true;
-    }
-  }
-
-  @override
-  Future<void> delete(String key, {bool staleOnly = false}) async {
-    final dir = await _resolveDir();
-    if (dir == null) return;
-    final file = _fileForKey(dir, key);
-    if (!file.existsSync()) return;
-    if (staleOnly) {
-      final resp = await _readFile(file);
-      if (resp == null || !resp.isStaled()) return;
-    }
-    try {
-      await file.delete();
-    } on Exception {
-      _unavailable = true;
-    }
-  }
+  Future<void> delete(String key, {bool staleOnly = false}) =>
+      _storage.deleteRecord(key, staleOnly: staleOnly);
 
   @override
   Future<void> deleteFromPath(
     RegExp pathPattern, {
     Map<String, String?>? queryParams,
   }) async {
-    final matches = await getFromPath(pathPattern, queryParams: queryParams);
-    for (final resp in matches) {
-      await delete(resp.key);
-    }
+    final records = await _storage.getAllRecords();
+    final keysToDelete = <String>[
+      for (final record in records)
+        if (pathExists(record.url, pathPattern, queryParams: queryParams))
+          record.key,
+    ];
+    await _storage.deleteRecords(keysToDelete);
   }
 
   @override
   Future<void> clean({
     CachePriority priorityOrBelow = CachePriority.high,
     bool staleOnly = false,
-  }) async {
-    final dir = await _resolveDir();
-    if (dir == null) return;
-    for (final entity in dir.listSync()) {
-      if (entity is! File) continue;
-      final resp = await _readFile(entity);
-      if (resp == null) continue;
-      final priorityOk = resp.priority.index <= priorityOrBelow.index;
-      final staleOk = !staleOnly || resp.isStaled();
-      if (priorityOk && staleOk) {
-        await entity.delete();
-      }
-    }
-  }
+  }) => _storage.cleanRecords(
+    maxPriorityIndex: priorityOrBelow.index,
+    staleOnly: staleOnly,
+  );
 
   @override
-  Future<void> close() async {}
+  Future<void> close() => _storage.closeStorage();
 
-  Map<String, Object?> _encodeResponse(CacheResponse r) => <String, Object?>{
-    'key': r.key,
-    'url': r.url,
-    'statusCode': r.statusCode,
-    'priority': r.priority.index,
-    'requestDate': r.requestDate.millisecondsSinceEpoch,
-    'responseDate': r.responseDate.millisecondsSinceEpoch,
-    if (r.date case final dt?) 'date': dt.millisecondsSinceEpoch,
-    if (r.expires case final dt?) 'expires': dt.millisecondsSinceEpoch,
-    if (r.maxStale case final dt?) 'maxStale': dt.millisecondsSinceEpoch,
-    if (r.eTag case final tag?) 'eTag': tag,
-    if (r.lastModified case final lm?) 'lastModified': lm,
-    if (r.content case final bytes?) 'content': base64Encode(bytes),
-    if (r.headers case final hdrs?) 'headers': base64Encode(hdrs),
-    'cc': <String, Object?>{
-      'maxAge': r.cacheControl.maxAge,
-      'maxStale': r.cacheControl.maxStale,
-      'minFresh': r.cacheControl.minFresh,
-      'mustRevalidate': r.cacheControl.mustRevalidate,
-      'noCache': r.cacheControl.noCache,
-      'noStore': r.cacheControl.noStore,
-      if (r.cacheControl.privacy case final priv?) 'privacy': priv,
-    },
-  };
+  static DateTime? _dtFromMs(int? ms) =>
+      ms != null ? DateTime.fromMillisecondsSinceEpoch(ms) : null;
 
-  CacheResponse? _decodeResponse(Map<String, Object?> json) {
-    final key = json['key'];
-    final url = json['url'];
-    final statusCode = json['statusCode'];
-    final reqMs = json['requestDate'];
-    final respMs = json['responseDate'];
-    if (key is! String ||
-        url is! String ||
-        statusCode is! int ||
-        reqMs is! int ||
-        respMs is! int) {
-      return null;
-    }
-    final ccMap = json['cc'] as Map<String, Object?>?;
-    final priorityIdx =
-        (json['priority'] as int?) ?? CachePriority.normal.index;
-    final priority = CachePriority
-        .values[priorityIdx.clamp(0, CachePriority.values.length - 1)];
+  static CacheResponse _toResponse(TileCacheEntryRecord r) {
+    final idx = r.priorityIndex.clamp(0, CachePriority.values.length - 1);
     return CacheResponse(
-      key: key,
-      url: url,
-      statusCode: statusCode,
-      priority: priority,
-      requestDate: DateTime.fromMillisecondsSinceEpoch(reqMs),
-      responseDate: DateTime.fromMillisecondsSinceEpoch(respMs),
-      date: _decodeDt(json['date']),
-      expires: _decodeDt(json['expires']),
-      maxStale: _decodeDt(json['maxStale']),
-      eTag: json['eTag'] as String?,
-      lastModified: json['lastModified'] as String?,
-      content: _decodeBytes(json['content']),
-      headers: _decodeBytes(json['headers']),
+      key: r.key,
+      url: r.url,
+      statusCode: r.statusCode,
+      priority: CachePriority.values[idx],
+      requestDate: DateTime.fromMillisecondsSinceEpoch(r.requestDateMs),
+      responseDate: DateTime.fromMillisecondsSinceEpoch(r.responseDateMs),
+      date: _dtFromMs(r.dateMs),
+      expires: _dtFromMs(r.expiresMs),
+      maxStale: _dtFromMs(r.maxStaleMs),
+      eTag: r.eTag,
+      lastModified: r.lastModified,
+      content: r.content,
+      headers: r.headers,
       cacheControl: CacheControl(
-        maxAge: (ccMap?['maxAge'] as int?) ?? -1,
-        maxStale: (ccMap?['maxStale'] as int?) ?? -1,
-        minFresh: (ccMap?['minFresh'] as int?) ?? -1,
-        mustRevalidate: (ccMap?['mustRevalidate'] as bool?) ?? false,
-        noCache: (ccMap?['noCache'] as bool?) ?? false,
-        noStore: (ccMap?['noStore'] as bool?) ?? false,
-        privacy: ccMap?['privacy'] as String?,
+        maxAge: r.ccMaxAge,
+        maxStale: r.ccMaxStale,
+        minFresh: r.ccMinFresh,
+        mustRevalidate: r.ccMustRevalidate,
+        noCache: r.ccNoCache,
+        noStore: r.ccNoStore,
+        privacy: r.ccPrivacy,
+        other: r.ccOther,
       ),
     );
   }
-
-  DateTime? _decodeDt(Object? raw) =>
-      raw is int ? DateTime.fromMillisecondsSinceEpoch(raw) : null;
-
-  List<int>? _decodeBytes(Object? raw) =>
-      raw is String ? base64Decode(raw) : null;
 }
