@@ -61,6 +61,11 @@ htmlcov/
 
 # Environment & Secrets (NEVER COMMIT REAL SECRETS)
 .env
+**/.env
+.env.*
+**/.env.*
+!.env.example
+!**/.env.example
 *.pem
 *.key
 secrets/

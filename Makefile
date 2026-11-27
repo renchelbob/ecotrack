@@ -54,7 +54,7 @@ dev-backend:
 	uv run --directory backend uvicorn app.main:app --reload --port 8000
 
 dev-mobile:
-	cd mobile && flutter run --dart-define=API_BASE_URL=http://127.0.0.1:8000
+	@if [ -f .env ]; then cd mobile && flutter run --dart-define-from-file=../.env; else cd mobile && flutter run --dart-define=API_BASE_URL=http://127.0.0.1:8000; fi
 
 check-image-size:
 	docker build --target runtime -t ecotrack-api:latest ./backend

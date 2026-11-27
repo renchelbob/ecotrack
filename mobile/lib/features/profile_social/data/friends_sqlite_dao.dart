@@ -1,0 +1,191 @@
+import 'dart:convert';
+
+import 'package:ecotrack_mobile/core/database/outbox_dispatcher.dart';
+import 'package:ecotrack_mobile/core/database/sqlite_database.dart';
+import 'package:ecotrack_mobile/features/profile_social/domain/profile_models.dart';
+import 'package:sqflite/sqflite.dart';
+
+final class FriendsSqliteDao(
+  final SqliteDatabase _db,
+  final OutboxDispatcher _outbox,
+) {
+  static String todayIsoLocal() {
+    final now = DateTime.now();
+    final month = now.month.toString().padLeft(2, '0');
+    final day = now.day.toString().padLeft(2, '0');
+    return '${now.year}-$month-$day';
+  }
+
+  Future<FriendsOverviewResponse?> getCachedOverview(
+    String myFriendCode,
+  ) async {
+    final rows = await _db.database.query(
+      'cached_friends_leaderboard',
+      orderBy: 'weekly_co2_saved_grams DESC',
+    );
+    if (rows.isEmpty) {
+      return null;
+    }
+    final today = todayIsoLocal();
+    final friends = <FriendProfileSummary>[];
+    final incoming = <FriendProfileSummary>[];
+    final outgoing = <FriendProfileSummary>[];
+    for (final row in rows) {
+      final status = FriendshipStatus.fromWire(
+        row['friendship_status'] as String?,
+      );
+      final meta = _parseMeta(row['last_nudge_date'] as String?);
+      final summary = FriendProfileSummary(
+        friendshipId: meta.friendshipId ?? '',
+        userId: row['friend_user_id'] as String? ?? '',
+        displayName: row['display_name'] as String? ?? 'Друг',
+        avatarUrl: row['avatar_url'] as String?,
+        friendCode: row['friend_code'] as String? ?? 'ECO-0000-0000',
+        status: status,
+        currentStreakDays: (row['current_streak_days'] as num?)?.toInt() ?? 0,
+        equippedAccessoryCode: row['equipped_accessory_code'] as String?,
+        isStatsVisibleToFriends: (row['is_stats_visible'] as int? ?? 1) == 1,
+        weeklyCo2SavedGrams:
+            (row['weekly_co2_saved_grams'] as num?)?.toInt() ?? 0,
+        weeklySteps: (row['weekly_steps'] as num?)?.toInt() ?? 0,
+        canSendWakeupNudgeToday: meta.nudgeDate != today,
+      );
+      if (status == .accepted) {
+        friends.add(summary);
+      } else if (status == .pending) {
+        if (meta.direction == 'outgoing') {
+          outgoing.add(summary);
+        } else {
+          incoming.add(summary);
+        }
+      }
+    }
+    return FriendsOverviewResponse(
+      myFriendCode: myFriendCode,
+      friends: friends,
+      incomingRequests: incoming,
+      outgoingRequests: outgoing,
+    );
+  }
+
+  Future<void> replaceCachedFriends(FriendsOverviewResponse overview) async {
+    final nowMs = DateTime.now().millisecondsSinceEpoch;
+    final today = todayIsoLocal();
+    final entries = <({FriendProfileSummary friend, String direction})>[
+      for (final friend in overview.friends)
+        (friend: friend, direction: 'accepted'),
+      for (final friend in overview.incomingRequests)
+        (friend: friend, direction: 'incoming'),
+      for (final friend in overview.outgoingRequests)
+        (friend: friend, direction: 'outgoing'),
+    ];
+    await _db.database.transaction((txn) async {
+      await txn.delete('cached_friends_leaderboard');
+      for (final entry in entries) {
+        final friend = entry.friend;
+        final metaPayload = _encodeMeta(
+          friendshipId: friend.friendshipId,
+          direction: entry.direction,
+          nudgeDate: friend.canSendWakeupNudgeToday ? null : today,
+        );
+        await txn.insert('cached_friends_leaderboard', {
+          'friend_user_id': friend.userId,
+          'display_name': friend.displayName,
+          'avatar_url': friend.avatarUrl,
+          'friend_code': friend.friendCode,
+          'friendship_status': friend.status.wireName,
+          'weekly_co2_saved_grams': friend.weeklyCo2SavedGrams ?? 0,
+          'weekly_steps': friend.weeklySteps ?? 0,
+          'current_streak_days': friend.currentStreakDays,
+          'equipped_accessory_code': friend.equippedAccessoryCode,
+          'is_stats_visible': friend.isStatsVisibleToFriends ? 1 : 0,
+          'last_nudge_date': metaPayload,
+          'updated_at_ms': nowMs,
+        }, conflictAlgorithm: ConflictAlgorithm.replace);
+      }
+    });
+  }
+
+  Future<void> markNudgedToday(String friendUserId, String nudgeDate) async {
+    final existing = await _db.database.query(
+      'cached_friends_leaderboard',
+      columns: ['last_nudge_date'],
+      where: 'friend_user_id = ?',
+      whereArgs: [friendUserId],
+      limit: 1,
+    );
+    final prevMeta = existing.isNotEmpty
+        ? _parseMeta(existing.first['last_nudge_date'] as String?)
+        : (friendshipId: null, direction: null, nudgeDate: null);
+    final updatedPayload =
+        prevMeta.friendshipId != null || prevMeta.direction != null
+        ? _encodeMeta(
+            friendshipId: prevMeta.friendshipId,
+            direction: prevMeta.direction,
+            nudgeDate: nudgeDate,
+          )
+        : nudgeDate;
+    await _db.database.update(
+      'cached_friends_leaderboard',
+      {
+        'last_nudge_date': updatedPayload,
+        'updated_at_ms': DateTime.now().millisecondsSinceEpoch,
+      },
+      where: 'friend_user_id = ?',
+      whereArgs: [friendUserId],
+    );
+  }
+
+  static String _encodeMeta({
+    required String? friendshipId,
+    required String? direction,
+    required String? nudgeDate,
+  }) => jsonEncode(<String, Object?>{
+    if (friendshipId != null && friendshipId.isNotEmpty)
+      'friendship_id': friendshipId,
+    if (direction != null && direction.isNotEmpty) 'direction': direction,
+    if (nudgeDate != null && nudgeDate.isNotEmpty) 'nudge_date': nudgeDate,
+  });
+
+  static ({String? friendshipId, String? direction, String? nudgeDate})
+  _parseMeta(String? raw) {
+    if (raw == null || raw.isEmpty) {
+      return (friendshipId: null, direction: null, nudgeDate: null);
+    }
+    if (!raw.startsWith('{')) {
+      return (friendshipId: null, direction: null, nudgeDate: raw);
+    }
+    try {
+      final decoded = jsonDecode(raw);
+      if (decoded is Map<Object?, Object?>) {
+        return (
+          friendshipId: decoded['friendship_id'] as String?,
+          direction: decoded['direction'] as String?,
+          nudgeDate: decoded['nudge_date'] as String?,
+        );
+      }
+    } on FormatException {
+      return (friendshipId: null, direction: null, nudgeDate: null);
+    }
+    return (friendshipId: null, direction: null, nudgeDate: null);
+  }
+
+  Future<void> removeCachedFriend(String friendUserId) async {
+    await _db.database.delete(
+      'cached_friends_leaderboard',
+      where: 'friend_user_id = ?',
+      whereArgs: [friendUserId],
+    );
+  }
+
+  Future<void> enqueueWakeupNudgeOutbox({
+    required String friendUserId,
+    required String idempotencyKey,
+  }) => _outbox.enqueue(
+    operationType: 'send_friend_wakeup_nudge',
+    httpMethod: 'POST',
+    endpointPath: '/api/v1/friends/$friendUserId/nudge',
+    payloadJson: jsonEncode(<String, Object?>{}),
+    idempotencyKey: idempotencyKey,
+  );
+}
